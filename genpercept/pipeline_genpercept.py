@@ -320,19 +320,8 @@ class GenPerceptPipeline(DiffusionPipeline):
         Returns:
             torch.Tensor: Image latent
         """
-        try:
-            # encode
-            h_temp = self.vae.encoder(rgb_in)
-            moments = self.vae.quant_conv(h_temp)
-        except:
-            # encode
-            h_temp = self.vae.encoder(rgb_in.float())
-            moments = self.vae.quant_conv(h_temp.float())
-            
-        mean, logvar = torch.chunk(moments, 2, dim=1)
-        # scale latent
-        rgb_latent = mean * self.vae_scale_factor
-        return rgb_latent
+        
+        return self.vae.encoder(rgb_in)
 
     def decode_pred(self, pred_latent: torch.Tensor) -> torch.Tensor:
         """
@@ -345,11 +334,6 @@ class GenPerceptPipeline(DiffusionPipeline):
         Returns:
             torch.Tensor: Decoded prediction label.
         """
-        # scale latent
-        pred_latent = pred_latent / self.vae_scale_factor
-        # decode
-        z = self.vae.post_quant_conv(pred_latent)
-        pred = self.vae.decoder(z)
         
-        return pred
+        return self.vae.decoder(pred_latent)
     

@@ -1,5 +1,5 @@
 from diffusers import UNet2DConditionModel
-from diffusers.models.unet_2d_condition import UNet2DConditionOutput
+from diffusers.models.unets.unet_2d_condition import UNet2DConditionOutput
 from typing import Any, Dict, List, Optional, Tuple, Union
 import torch
 import torch.nn as nn
@@ -21,7 +21,7 @@ class CustomUNet2DConditionOutput(BaseOutput):
     """
 
     sample: torch.FloatTensor = None
-    multi_level_feats: [torch.FloatTensor] = None
+    multi_level_feats: torch.FloatTensor = None
     sample_320: torch.FloatTensor = None
 
 class CustomUNet2DConditionModel(UNet2DConditionModel):
@@ -315,7 +315,7 @@ class CustomUNet2DConditionModel(UNet2DConditionModel):
                         **additional_residuals,
                     )
                 else:
-                    sample, res_samples = downsample_block(hidden_states=sample, temb=emb, scale=lora_scale)
+                    sample, res_samples = downsample_block(hidden_states=sample, temb=emb)#, scale=lora_scale)
                     if is_adapter and len(down_intrablock_additional_residuals) > 0:
                         sample += down_intrablock_additional_residuals.pop(0)
 
@@ -389,7 +389,7 @@ class CustomUNet2DConditionModel(UNet2DConditionModel):
                         temb=emb,
                         res_hidden_states_tuple=res_samples,
                         upsample_size=upsample_size,
-                        scale=lora_scale,
+                        # scale=lora_scale,
                     )
                 # if not is_final_block:
                 multi_level_feats.append(sample)
