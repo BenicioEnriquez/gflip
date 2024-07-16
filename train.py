@@ -21,9 +21,9 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
 batchsize = 16
-epochs = 100
+epochs = 10
 loadpt = -1
-stats = True
+stats = False
 
 clip, _, preprocess = mobileclip.create_model_and_transforms(f'mobileclip_s0', pretrained=f'./models/mobileclip_s0.pt')
 clip = clip.to(device)
@@ -62,7 +62,7 @@ scaler = torch.cuda.amp.GradScaler()
 check = nn.HuberLoss()
 
 test_noise = torch.zeros(1, 3, 256, 256).to(device)
-test_image = preprocess(Image.open("./dogcat.jpg").convert('RGB')).cuda().unsqueeze(0)
+test_image = preprocess(Image.open("./imgs/dogcat.jpg").convert('RGB')).cuda().unsqueeze(0)
 test_embeds = clip.encode_image(test_image, patch=True)
 
 def train(inp, out):
@@ -101,11 +101,11 @@ for epoch in range(epochs):
         prev = prev.to(device)
         target = target.to(device)
         
-        pred, loss1, clipsim1 = train(prev, target)
-        pred, loss2, clipsim2 = train(pred, target)
+        pred, _, _ = train(prev, target)
+        _, loss, clipsim = train(pred, target)
         
         if i % 50 == 0:
-            print(f"[Epoch {epoch}/{epochs}] [Batch {i}/{len(dataloader)}] [loss1: {loss1.item()}] [CLIP1: {clipsim1.item()}] [loss2: {loss2.item()}] [CLIP2: {clipsim2.item()}]")
+            print(f"[Epoch {epoch}/{epochs}] [Batch {i}/{len(dataloader)}] [loss: {loss.item()}] [CLIP: {clipsim.item()}]")
             img = gen(test_noise, test_embeds)
             images = [test_image, img]
             for x in range(7):

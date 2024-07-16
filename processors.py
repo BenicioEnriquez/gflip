@@ -2,9 +2,11 @@ import numpy as np
 import torch
 from PIL import Image
 
-from diffusers import AutoencoderKL, AutoencoderTiny
+from torchvision import transforms as T
+from diffusers import AutoencoderTiny
 from genpercept.models import CustomUNet2DConditionModel
 from genpercept.pipeline_genpercept import GenPerceptPipeline
+from genpercept.util.image_util import colorize_depth_maps, norm_to_rgb, chw2hwc
 
 class InversePipe:
     def __init__(self, mode):
@@ -42,20 +44,35 @@ class InversePipe:
             out = (out + 1.0) * 0.5
         return out
 
-from torchvision import transforms as T
+def depth2img(t):
+    t = colorize_depth_maps(t.cpu(), 0, 1)[0]
+    return T.ToPILImage()(t)
 
-depth = InversePipe('depth')
-images = torch.stack([
-    T.ToTensor()(Image.open('./imgs/ghostgirl.png').convert("RGB").resize((256, 256))).to(torch.float16).cuda(),
-    T.ToTensor()(Image.open('./imgs/coffeegirl.jpg').convert("RGB").resize((256, 256))).to(torch.float16).cuda(),
-    T.ToTensor()(Image.open('./imgs/dogcat.jpg').convert("RGB").resize((256, 256))).to(torch.float16).cuda(),
-])
+def norm2img(t):
+    t = chw2hwc(t.cpu().numpy())
+    t = norm_to_rgb(t)
+    return T.ToPILImage()(t)
 
-import time
-t = time.time()
-out = depth.run(images)
-print(time.time() - t)
-input()
 
-# from genpercept.util.image_util import colorize_depth_maps, norm_to_rgb
-# out.pred_colored.save('./out.png')
+# TEST BENCH
+
+if __name__ == "__main__":
+    depth = InversePipe('depth')
+
+    res = 512
+
+    images = torch.stack([
+        T.ToTensor()(Image.open('./imgs/ghostgirl.png').convert("RGB").resize((res, res))).to(torch.float16).cuda(),
+        T.ToTensor()(Image.open('./imgs/coffeegirl.jpg').convert("RGB").resize((res, res))).to(torch.float16).cuda(),
+        T.ToTensor()(Image.open('./imgs/dogcat.jpg').convert("RGB").resize((res, res))).to(torch.float16).cuda(),
+    ])
+
+    import time
+    total = 0
+
+    for i in range(50):
+        t = time.time()
+        out = depth.run(images)
+        total += time.time() - t
+
+    print(total / 50)
