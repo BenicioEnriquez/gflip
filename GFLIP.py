@@ -3,6 +3,25 @@ import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
 
+class GBlock(nn.Module):
+    def __init__(self, ch):
+        super(GBlock, self).__init__()
+
+        mid = ch * 4
+
+        self.net = nn.Sequential(
+            nn.Conv2d(ch, ch, 5, 1, 2, 1, ch, False),
+            nn.LayerNorm(),
+            nn.Conv2d(ch, mid, 1, 1, 0, 1, 1, False),
+            nn.ReLU6(),
+            nn.Conv2d(mid, mid, 3, 1, 1, 1, mid, False),
+            nn.ReLU6(),
+            nn.Conv2d(mid, ch, 1, 1, 0, 1, 1, False)
+        )
+
+    def forward(self, x):
+        return self.net(x) + x
+    
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
