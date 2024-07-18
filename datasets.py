@@ -21,7 +21,8 @@ class ImageSet(Dataset):
             T.RandomHorizontalFlip()
         ])
         self.mod = T.Compose([
-            T.GaussianBlur(kernel_size=(9, 9), sigma=(5, 10))
+            T.Resize(64),
+            T.Resize(256)
         ])
         self.tail = T.Compose([
             T.ToDtype(torch.float32, scale=True)
@@ -41,7 +42,7 @@ class ImageSet(Dataset):
         if torch.rand(1) < 0.1:
             prev = self.mod(self.perlin())
 
-        if torch.rand(1) < 0.1:
+        if torch.rand(1) < 0.25:
             prev = torch.zeros(3, 256, 256)
 
         return self.tail(prev), self.tail(image)

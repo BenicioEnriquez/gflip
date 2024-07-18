@@ -23,7 +23,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 batchsize = 16
 epochs = 10
 loadpt = -1
-stats = False
+stats = True
 
 clip, _, preprocess = mobileclip.create_model_and_transforms(f'mobileclip_s0', pretrained=f'./models/mobileclip_s0.pt')
 clip = clip.to(device)
@@ -48,7 +48,7 @@ params = np.sum([p.numel() for p in gen.parameters()]).item()/10**6
 
 if stats:
     wandb.init(
-        project = 'GFLIP',
+        project = 'GFLIP-U',
         config = {
             'params': params,
             'batchsize': batchsize,
@@ -101,8 +101,8 @@ for epoch in range(epochs):
         prev = prev.to(device)
         target = target.to(device)
         
-        pred, _, _ = train(prev, target)
-        _, loss, clipsim = train(pred, target)
+        pred, loss, clipsim = train(prev, target)
+        train(pred, target)
         
         if i % 50 == 0:
             print(f"[Epoch {epoch}/{epochs}] [Batch {i}/{len(dataloader)}] [loss: {loss.item()}] [CLIP: {clipsim.item()}]")

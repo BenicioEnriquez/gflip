@@ -14,7 +14,7 @@ torch.backends.cudnn.benchmark = True
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
-loadpt = 1
+loadpt = 0
 dtype = torch.float16
 
 clip, _, preprocess = mobileclip.create_model_and_transforms(f'mobileclip_s0', pretrained=f'./models/mobileclip_s0.pt')
@@ -42,7 +42,7 @@ print("Params:", params)
 # test_noise = perlin().unsqueeze(0).to(device, dtype)
 
 test_noise = torch.zeros(1, 3, 256, 256).to(device, dtype)
-test_image = preprocess(Image.open("./imgs/fancy.jpg").convert('RGB')).unsqueeze(0).to(device, dtype)
+test_image = preprocess(Image.open("./imgs/boujee.png").convert('RGB')).unsqueeze(0).to(device, dtype)
 test_embeds = clip.encode_image(test_image, patch=True)
 
 images = [test_image]
