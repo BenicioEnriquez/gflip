@@ -15,6 +15,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
 loadpt = 0
+mult = 1
 dtype = torch.float16
 
 clip, _, preprocess = mobileclip.create_model_and_transforms(f'mobileclip_s0', pretrained=f'./models/mobileclip_s0.pt')
@@ -38,12 +39,15 @@ print("Params:", params)
 
 # resolutions = [(2**i,2**i) for i in range(1,7)]
 # factors = [.5**i for i in range(6)]
-# perlin = FractalPerlin2D((3, 256, 256), resolutions, factors)
+# perlin = FractalPerlin2D((3, 256 * mult, 256 * mult), resolutions, factors)
 # test_noise = perlin().unsqueeze(0).to(device, dtype)
 
-test_noise = torch.zeros(1, 3, 256, 256).to(device, dtype)
+scale = torch.nn.Upsample(scale_factor=mult, mode='bilinear')
+test_noise = torch.zeros(1, 3, int(256 * mult), int(256 * mult)).to(device, dtype)
 test_image = preprocess(Image.open("./imgs/boujee.png").convert('RGB')).unsqueeze(0).to(device, dtype)
 test_embeds = clip.encode_image(test_image, patch=True)
+test_image = scale(test_image)
+test_embeds = scale(test_embeds)
 
 images = [test_image]
 img = test_noise

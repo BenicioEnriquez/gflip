@@ -5,7 +5,6 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.transforms import v2 as T
-from pyperlin import FractalPerlin2D
 
 class ImageSet(Dataset):
     def __init__(self, dir):
@@ -17,19 +16,13 @@ class ImageSet(Dataset):
         ]
         self.head = T.Compose([
             T.ToImage(),
-            T.RandomResizedCrop(256),
+            T.RandomResizedCrop(384),
             T.RandomHorizontalFlip()
         ])
-        self.mod = T.Compose([
-            T.Resize(64),
-            T.Resize(256)
-        ])
         self.tail = T.Compose([
+            T.RandomCrop(256),
             T.ToDtype(torch.float32, scale=True)
         ])
-        resolutions = [(2**i,2**i) for i in range(1,7)]
-        factors = [.5**i for i in range(6)]
-        self.perlin = FractalPerlin2D((3, 256, 256), resolutions, factors)
     
     def __len__(self):
         return len(self.paths)
@@ -37,12 +30,4 @@ class ImageSet(Dataset):
     def __getitem__(self, idx):
         image = Image.open(self.paths[idx]).convert("RGB")
         image = self.head(image)
-        prev = self.mod(image)
-
-        if torch.rand(1) < 0.1:
-            prev = self.mod(self.perlin())
-
-        if torch.rand(1) < 0.25:
-            prev = torch.zeros(3, 256, 256)
-
-        return self.tail(prev), self.tail(image)
+        return self.tail(image), self.tail(image)

@@ -10,12 +10,12 @@ from genpercept.util.image_util import colorize_depth_maps, norm_to_rgb, chw2hwc
 
 class InversePipe:
     def __init__(self, mode):
-        device = torch.device("cuda")
-        dtype = torch.float16
+        self.device = torch.device("cuda")
+        self.dtype = torch.float16
 
-        unet = CustomUNet2DConditionModel.from_pretrained(f'./models/{mode}', torch_dtype=dtype)
-        vae = AutoencoderTiny.from_pretrained("madebyollin/taesd", torch_dtype=dtype)
-        empty_text_embed = torch.from_numpy(np.load("./genpercept/empty_text_embed.npy")).to(device, dtype)[None] # [1, 77, 1024]
+        unet = CustomUNet2DConditionModel.from_pretrained(f'./models/{mode}', torch_dtype=self.dtype)
+        vae = AutoencoderTiny.from_pretrained("madebyollin/taesd", torch_dtype=self.dtype)
+        empty_text_embed = torch.from_numpy(np.load("./genpercept/empty_text_embed.npy")).to(self.device, self.dtype)[None] # [1, 77, 1024]
 
         genpercept_params_ckpt = dict(
             unet=unet,
@@ -26,7 +26,7 @@ class InversePipe:
 
         self.pipe = GenPerceptPipeline(**genpercept_params_ckpt)
 
-        self.pipe = self.pipe.to(device)
+        self.pipe = self.pipe.to(self.device)
         self.pipe.set_progress_bar_config(disable=True)
 
         try:
@@ -38,11 +38,12 @@ class InversePipe:
 
         self.mode = mode
     
-    def run(self, images):
-        out = self.pipe.single_infer(images, mode=self.mode).clip(-1, 1)
+    def __call__(self, images):
+        t = images.dtype
+        out = self.pipe.single_infer(images.to(dtype=self.dtype), mode=self.mode).clip(-1, 1)
         if self.mode == 'depth':
             out = (out + 1.0) * 0.5
-        return out
+        return out.to(dtype=t)
 
 def depth2img(t):
     t = colorize_depth_maps(t.cpu(), 0, 1)[0]
