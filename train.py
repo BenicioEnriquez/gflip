@@ -25,7 +25,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # Settings
 batchsize = 8
 epochs = 10
-loadpt = -1
+loadpt = 0
 stats = True
 
 clip, _, preprocess = mobileclip.create_model_and_transforms(f'mobileclip_s0', pretrained=f'./models/mobileclip_s0.pt')
