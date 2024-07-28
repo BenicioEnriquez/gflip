@@ -37,11 +37,6 @@ params = np.sum([p.numel() for p in gen.parameters()]).item()/10**6
 
 print("Params:", params)
 
-# resolutions = [(2**i,2**i) for i in range(1,7)]
-# factors = [.5**i for i in range(6)]
-# perlin = FractalPerlin2D((3, 256 * mult, 256 * mult), resolutions, factors)
-# test_noise = perlin().unsqueeze(0).to(device, dtype)
-
 scale = torch.nn.Upsample(scale_factor=mult, mode='bilinear')
 test_noise = torch.zeros(1, 3, int(256 * mult), int(256 * mult)).to(device, dtype)
 test_image = preprocess(Image.open("./imgs/boujee.png").convert('RGB')).unsqueeze(0).to(device, dtype)

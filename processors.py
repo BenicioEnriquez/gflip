@@ -1,68 +1,57 @@
-import numpy as np
 import torch
 from PIL import Image
 
 from torchvision import transforms as T
-from diffusers import AutoencoderTiny
-from genpercept.models import CustomUNet2DConditionModel
-from genpercept.pipeline_genpercept import GenPerceptPipeline
-from genpercept.util.image_util import colorize_depth_maps, norm_to_rgb, chw2hwc
+from transformers import AutoModelForDepthEstimation
 
-class InversePipe:
-    def __init__(self, mode):
+class DepthPipe:
+    def __init__(self, size=None):
         self.device = torch.device("cuda")
         self.dtype = torch.float16
+        self.size = size
 
-        unet = CustomUNet2DConditionModel.from_pretrained(f'./models/{mode}', torch_dtype=self.dtype)
-        vae = AutoencoderTiny.from_pretrained("madebyollin/taesd", torch_dtype=self.dtype)
-        empty_text_embed = torch.from_numpy(np.load("./genpercept/empty_text_embed.npy")).to(self.device, self.dtype)[None] # [1, 77, 1024]
+        self.model = AutoModelForDepthEstimation.from_pretrained('depth-anything/Depth-Anything-V2-Small-hf', torch_dtype=self.dtype).to(self.device)
 
-        genpercept_params_ckpt = dict(
-            unet=unet,
-            vae=vae,
-            empty_text_embed=empty_text_embed,
-            customized_head=None,
-        )
-
-        self.pipe = GenPerceptPipeline(**genpercept_params_ckpt)
-
-        self.pipe = self.pipe.to(self.device)
-        self.pipe.set_progress_bar_config(disable=True)
-
-        try:
-            import xformers
-            self.pipe.enable_xformers_memory_efficient_attention()
-        except:
-            print("xformers not loaded :(")
-            pass  # run without xformers
-
-        self.mode = mode
+        for p in self.model.parameters():
+            p.requires_grad = False
+        self.model.eval()
     
     def __call__(self, images):
-        t = images.dtype
-        out = self.pipe.single_infer(images.to(dtype=self.dtype), mode=self.mode).clip(-1, 1)
-        if self.mode == 'depth':
-            out = (out + 1.0) * 0.5
-        return out.to(dtype=t)
 
-def depth2img(t):
-    t = colorize_depth_maps(t.cpu(), 0, 1)[0]
-    return T.ToPILImage()(t)
+        if self.size != None:
+            b, c, h, w = images.size()
+            short = min(h, w)
+            s = self.size / short
 
-def norm2img(t):
-    t = chw2hwc(t.cpu().numpy())
-    t = norm_to_rgb(t)
-    return T.ToPILImage()(t)
+            images = torch.nn.functional.interpolate(
+                images,
+                size=(int(h*s), int(w*s)),
+                mode="bilinear"
+            )
+        
+        with torch.no_grad():
+            outputs = self.model(images)
+            depth = outputs.predicted_depth
 
+        depth = (depth / depth.max()).clamp(0, 1).unsqueeze(1)
+
+        if self.size != None:
+            depth = torch.nn.functional.interpolate(
+                depth,
+                size=(h, w),
+                mode="bilinear"
+            )
+
+        return depth
 
 # TEST BENCH
 
 if __name__ == "__main__":
-    depth = InversePipe('depth')
+    depth = DepthPipe()
 
     res = 512
 
-    images = torch.stack([
+    imgs = torch.stack([
         T.ToTensor()(Image.open('./imgs/ghostgirl.png').convert("RGB").resize((res, res))).to(torch.float16).cuda(),
         T.ToTensor()(Image.open('./imgs/coffeegirl.jpg').convert("RGB").resize((res, res))).to(torch.float16).cuda(),
         T.ToTensor()(Image.open('./imgs/dogcat.jpg').convert("RGB").resize((res, res))).to(torch.float16).cuda(),
@@ -73,7 +62,9 @@ if __name__ == "__main__":
 
     for i in range(50):
         t = time.time()
-        out = depth.run(images)
+        out = depth(imgs)
         total += time.time() - t
 
     print(total / 50)
+
+    T.ToPILImage()(out[0]).show()
