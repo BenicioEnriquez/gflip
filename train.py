@@ -63,14 +63,15 @@ scaler = torch.cuda.amp.GradScaler()
 check = nn.HuberLoss()
 
 depth = DepthPipe(518)
-dblur = T.GaussianBlur((9, 7), (10, 20))
+dblur = T.GaussianBlur(17, (5.0, 10.0))
 
 frameT = preprocess(Image.open("./imgs/dogcat.jpg").convert('RGB')).cuda().unsqueeze(0)
 embedT = clip.encode_image(frameT, patch=True)
 depthT = dblur(depth(frameT))
 
 def getmask(b, c, p):
-    return torch.repeat_interleave(torch.rand((b, 1, 256, 256)) * (0.5 + p * 0.5), c, 1).round().to(device)
+    # return torch.repeat_interleave(torch.rand((b, 1, 256, 256)) * (0.5 + p * 0.5), c, 1).round().to(device)
+    return nn.Upsample(scale_factor=8)(torch.repeat_interleave(torch.rand((b, 1, 32, 32)) * (0.5 + p * 0.5), c, 1).round()).to(device)
 
 t = time.time()
 
@@ -95,11 +96,11 @@ for epoch in range(epochs):
             ], dim=1)
 
             mask = torch.concat([
-                getmask(istack.size(0), 1, 0.2),
-                getmask(istack.size(0), 3, 0.2),
-                getmask(istack.size(0), 1, 0.2),
-                getmask(istack.size(0), 3, 0.2)
+                torch.ones(istack.size(0), 4, 256, 256).to(device),
+                getmask(istack.size(0), 4, 0.1)
             ], dim=1)
+
+            # T.ToPILImage()((istack * mask)[0, -3:]).show()
 
             ostack = gen(istack, mask, embedB)
             
@@ -129,6 +130,8 @@ for epoch in range(epochs):
             
             with torch.no_grad():
 
+                # TEST 1
+
                 istack = torch.concat([
                     depthT,
                     frameT,
@@ -147,10 +150,12 @@ for epoch in range(epochs):
                     gen(istack, mask, embedT)[:, -3:]
                 ]
 
+                # TEST 2
+
                 mask = torch.concat([
-                    getmask(1, 1, 0.2),
-                    getmask(1, 3, 0.2),
-                    getmask(1, 1, 0.2),
+                    # getmask(1, 4, 0.3),
+                    torch.ones(1, 4, 256, 256).to(device),
+                    getmask(1, 1, 0.3),
                     torch.zeros(1, 3, 256, 256).to(device)
                 ], dim=1)
 
@@ -158,6 +163,8 @@ for epoch in range(epochs):
                 tests.append(ostack[:, 1:4])
                 tests.append(torch.repeat_interleave(ostack[:, :1], 3, 1))
                 tests.append(ostack[:, -3:])
+
+                # TEST 3
                 
                 mask = torch.concat([
                     torch.ones(1, 1, 256, 256).to(device),
@@ -170,13 +177,18 @@ for epoch in range(epochs):
                     istack = gen(istack, mask, embedT)
                     tests.append(istack[:, -3:])
                     mask = torch.concat([
-                        getmask(istack.size(0), 1, 0.2),
-                        getmask(istack.size(0), 3, 0.2),
-                        getmask(istack.size(0), 1, 0.2),
-                        getmask(istack.size(0), 3, 0.2)
+                        torch.ones(1, 1, 256, 256).to(device),
+                        getmask(1, 3, 0.1),
+                        torch.ones(1, 1, 256, 256).to(device),
+                        getmask(1, 3, 0.1)
                     ], dim=1)
 
-                T.ToPILImage()(make_grid(torch.concat(tests), 3)).save(f"./results/{epoch}-{i}.png")
+                outimgs = T.ToPILImage()(make_grid(torch.concat(tests), 3))
+                outimgs.save(f"./results/{epoch}-{i}.png")
+                if stats:
+                    wandb.log({
+                        'outputs': wandb.Image(outimgs.resize((512, 512)), caption=f'{epoch}-{i}')
+                    })
                 torch.save(gen, f"./models/gen_{epoch}.pth")
             
             t = time.time()
