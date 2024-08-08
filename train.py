@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import numpy as np
 import wandb
 
+from random import uniform as rand
 from torch.utils.data import DataLoader
 from torchvision.transforms import v2 as T
 from torchvision.utils import make_grid
@@ -90,26 +91,28 @@ for epoch in range(epochs):
 
             istack = torch.concat([
                 depthA,
-                frameA,
+                torch.concat([frameA[:frameA.size(0)-1], torch.rand_like(frameT)]),
                 depthB,
                 frameB
             ], dim=1)
 
             mask = torch.concat([
                 torch.ones(istack.size(0), 4, 256, 256).to(device),
-                getmask(istack.size(0), 4, 0.1)
+                getmask(istack.size(0), 1, rand(0.1, 0.3)),
+                getmask(istack.size(0), 3, rand(0.0, 0.1))
             ], dim=1)
+
+            imask = (1 - mask)
 
             # T.ToPILImage()((istack * mask)[0, -3:]).show()
 
             ostack = gen(istack, mask, embedB)
             
-            frameC = ostack[:, -3:]
+            frameC = (istack * mask + ostack * imask)[:, -3:]
 
             embedC = clip.encode_image(frameC, patch=True)
             clipsim = torch.cosine_similarity(embedB, embedC).mean()
-
-            imask = (1 - mask)
+            
             loss = check(istack * imask, ostack * imask)
 
         scaler.scale(loss).backward()
@@ -153,7 +156,6 @@ for epoch in range(epochs):
                 # TEST 2
 
                 mask = torch.concat([
-                    # getmask(1, 4, 0.3),
                     torch.ones(1, 4, 256, 256).to(device),
                     getmask(1, 1, 0.3),
                     torch.zeros(1, 3, 256, 256).to(device)
@@ -161,27 +163,32 @@ for epoch in range(epochs):
 
                 ostack = gen(istack, mask, embedT)
                 tests.append(ostack[:, 1:4])
-                tests.append(torch.repeat_interleave(ostack[:, :1], 3, 1))
+                tests.append(torch.repeat_interleave(ostack[:, 4], 3, 1))
                 tests.append(ostack[:, -3:])
 
                 # TEST 3
                 
-                mask = torch.concat([
-                    torch.ones(1, 1, 256, 256).to(device),
-                    torch.zeros(1, 3, 256, 256).to(device),
-                    torch.ones(1, 1, 256, 256).to(device),
+                istack = torch.concat([
+                    depthT,
+                    torch.rand(1, 3, 256, 256).to(device),
+                    depthT,
                     torch.zeros(1, 3, 256, 256).to(device)
                 ], dim=1)
 
+                mask = torch.concat([
+                    torch.ones(1, 5, 256, 256).to(device),
+                    torch.zeros(1, 3, 256, 256).to(device)
+                ], dim=1)
+                imask = (1 - mask)
+
                 for _ in range(3):
-                    istack = gen(istack, mask, embedT)
+                    istack = gen(istack, mask, embedT) * imask + istack * mask
                     tests.append(istack[:, -3:])
                     mask = torch.concat([
-                        torch.ones(1, 1, 256, 256).to(device),
-                        getmask(1, 3, 0.1),
-                        torch.ones(1, 1, 256, 256).to(device),
+                        torch.ones(1, 5, 256, 256).to(device),
                         getmask(1, 3, 0.1)
                     ], dim=1)
+                    imask = (1 - mask)
 
                 outimgs = T.ToPILImage()(make_grid(torch.concat(tests), 3))
                 outimgs.save(f"./results/{epoch}-{i}.png")

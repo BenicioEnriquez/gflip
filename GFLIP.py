@@ -33,7 +33,7 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
 
         self.headblk = nn.Sequential(
-            nn.Conv2d(16, 64, 7, 1, 3),
+            nn.Conv2d(12, 64, 7, 1, 3),
             nn.ReLU(inplace=True),
         )
 
@@ -62,20 +62,27 @@ class Generator(nn.Module):
 
         self.mainblk = nn.Sequential(
             XBlock(128, 512, 7, 5),
+            nn.Conv2d(128, 96, 3, 1, 1, bias=False),
             nn.ReLU(inplace=True),
-            XBlock(128, 512, 7, 5),
+            XBlock(96, 384, 7, 5),
+            nn.Conv2d(96, 64, 3, 1, 1, bias=False),
             nn.ReLU(inplace=True),
-            XBlock(128, 512, 5, 3),
+            XBlock(64, 256, 7, 5),
+            nn.Conv2d(64, 64, 3, 1, 1, bias=False),
             nn.ReLU(inplace=True),
-            XBlock(128, 512, 5, 3),
+            XBlock(64, 256, 7, 5),
             nn.ReLU(inplace=True),
-            nn.Conv2d(128, 8, 3, 1, 1),
+            XBlock(64, 256, 7, 5),
+            nn.ReLU(inplace=True),
+            XBlock(64, 256, 7, 5),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 8, 3, 1, 1),
             nn.Sigmoid()
         )
 
 
     def forward(self, x, m, c):
-        x = torch.concat([x * m, m], dim=1)
+        x = torch.concat([x * m, m[:, -4:]], dim=1)
         x = self.headblk(x)
         c = self.clipblk(c)
         x = torch.concat([x, c], dim=1)
