@@ -6,7 +6,8 @@ import torch.nn.functional as F
 import numpy as np
 import wandb
 
-from random import uniform as rand
+from random import uniform as randf
+from random import randint as randi
 from torch.utils.data import DataLoader
 from torchvision.transforms import v2 as T
 from torchvision.utils import make_grid
@@ -22,7 +23,7 @@ torch.backends.cudnn.benchmark = True
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
-batchsize = 8
+batchsize = 12
 epochs = 10
 loadpt = -1
 stats = True
@@ -64,15 +65,14 @@ scaler = torch.cuda.amp.GradScaler()
 check = nn.HuberLoss()
 
 depth = DepthPipe(518)
-dblur = T.GaussianBlur(17, (5.0, 10.0))
 
 frameT = preprocess(Image.open("./imgs/dogcat.jpg").convert('RGB')).cuda().unsqueeze(0)
 embedT = clip.encode_image(frameT, patch=True)
-depthT = dblur(depth(frameT))
+depthT = depth(frameT)
 
-def getmask(b, c, p):
-    # return torch.repeat_interleave(torch.rand((b, 1, 256, 256)) * (0.5 + p * 0.5), c, 1).round().to(device)
-    return nn.Upsample(scale_factor=8)(torch.repeat_interleave(torch.rand((b, 1, 32, 32)) * (0.5 + p * 0.5), c, 1).round()).to(device)
+def getmask(b, c, m, p):
+    s = 256 // (2 ** p)
+    return nn.Upsample((256, 256))(torch.repeat_interleave(torch.rand((b, 1, s, s)) * (0.5 + m * 0.5), c, 1).round()).to(device)
 
 t = time.time()
 
@@ -86,20 +86,29 @@ for epoch in range(epochs):
         with torch.cuda.amp.autocast():
             embedB = clip.encode_image(frameB, patch=True)
 
-            depthA = dblur(depth(frameA))
-            depthB = dblur(depth(frameB))
+            depthA = depth(frameA)
+            depthB = depth(frameB)
 
             istack = torch.concat([
                 depthA,
-                torch.concat([frameA[:frameA.size(0)-1], torch.rand_like(frameT)]),
+                frameA,
                 depthB,
                 frameB
             ], dim=1)
 
             mask = torch.concat([
-                torch.ones(istack.size(0), 4, 256, 256).to(device),
-                getmask(istack.size(0), 1, rand(0.1, 0.3)),
-                getmask(istack.size(0), 3, rand(0.0, 0.1))
+                getmask(istack.size(0), 1, randf(0.1, 0.3), randi(0, 5)),
+                torch.concat([
+                    getmask(istack.size(0)-2, 3, randf(0.0, 0.3), randi(0, 5)),
+                    torch.zeros(1, 3, 256, 256).to(device),
+                    torch.zeros(1, 3, 256, 256).to(device),
+                ]),
+                getmask(istack.size(0), 1, randf(0.1, 0.3), randi(0, 5)),
+                torch.concat([
+                    torch.zeros(1, 3, 256, 256).to(device),
+                    getmask(istack.size(0)-2, 3, randf(0.0, 0.3), randi(0, 5)),
+                    torch.zeros(1, 3, 256, 256).to(device),
+                ]),
             ], dim=1)
 
             imask = (1 - mask)
@@ -156,37 +165,43 @@ for epoch in range(epochs):
                 # TEST 2
 
                 mask = torch.concat([
-                    torch.ones(1, 4, 256, 256).to(device),
-                    getmask(1, 1, 0.3),
+                    getmask(1, 1, 0.3, 3),
+                    getmask(1, 3, 0.3, 3),
+                    getmask(1, 1, 0.3, 3),
                     torch.zeros(1, 3, 256, 256).to(device)
                 ], dim=1)
+                imask = (1 - mask)
 
-                ostack = gen(istack, mask, embedT)
+                ostack = gen(istack, mask, embedT) * imask + istack * mask
                 tests.append(ostack[:, 1:4])
-                tests.append(torch.repeat_interleave(ostack[:, 4], 3, 1))
+                tests.append(torch.repeat_interleave(ostack[:, 4:5], 3, 1))
                 tests.append(ostack[:, -3:])
 
                 # TEST 3
                 
                 istack = torch.concat([
                     depthT,
-                    torch.rand(1, 3, 256, 256).to(device),
+                    frameT,
                     depthT,
                     torch.zeros(1, 3, 256, 256).to(device)
                 ], dim=1)
 
                 mask = torch.concat([
-                    torch.ones(1, 5, 256, 256).to(device),
+                    torch.ones(1, 1, 256, 256).to(device),
+                    torch.zeros(1, 3, 256, 256).to(device),
+                    torch.ones(1, 1, 256, 256).to(device),
                     torch.zeros(1, 3, 256, 256).to(device)
                 ], dim=1)
                 imask = (1 - mask)
 
-                for _ in range(3):
+                for m in range(3):
                     istack = gen(istack, mask, embedT) * imask + istack * mask
                     tests.append(istack[:, -3:])
                     mask = torch.concat([
-                        torch.ones(1, 5, 256, 256).to(device),
-                        getmask(1, 3, 0.1)
+                        torch.ones(1, 1, 256, 256).to(device),
+                        torch.zeros(1, 3, 256, 256).to(device),
+                        torch.ones(1, 1, 256, 256).to(device),
+                        getmask(1, 3, 0.1, 3-m)
                     ], dim=1)
                     imask = (1 - mask)
 
