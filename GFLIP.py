@@ -21,6 +21,18 @@ class XBlock(nn.Module):
     def forward(self, x):
         return self.net(x) + x
 
+class YBlock(nn.Module):
+    def __init__(self, i, o):
+        super(YBlock, self).__init__()
+
+        self.net = nn.Sequential(
+            nn.Conv2d(i, o, 7, 1, 3),
+            nn.ReLU(inplace=True)
+        )
+    
+    def forward(self, x):
+        return self.net(x)
+
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
@@ -30,32 +42,37 @@ class Generator(nn.Module):
         )
 
         self.clipblk = nn.Sequential(
-            nn.Upsample(scale_factor=4, mode='bilinear'),
-            nn.Conv2d(512, 512, 5, 1, 2),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(512, 256, 3, 1, 1, bias=False),
-            nn.ReLU(inplace=True),
             nn.Upsample(scale_factor=2, mode='bilinear'),
-            nn.Conv2d(256, 256, 3, 1, 1),
-            nn.ReLU(inplace=True)
+            YBlock(512, 512),
+            nn.Upsample(scale_factor=2, mode='bilinear'),
+            YBlock(512, 396),
+            nn.Upsample(scale_factor=2, mode='bilinear'),
+            YBlock(396, 256),
         )
 
         self.mainblk = nn.Sequential(
-            XBlock(512, 2048, 15, 9),
-            XBlock(512, 2048, 15, 9),
-            XBlock(512, 2048, 15, 9),
-            XBlock(512, 2048, 15, 9),
+            XBlock(512, 512 * 3, 15, 9),
+            YBlock(512, 512),
+            XBlock(512, 512 * 3, 15, 9),
+            YBlock(512, 768),
+            XBlock(768, 768 * 3, 15, 9),
+            YBlock(768, 1024),
+            XBlock(1024, 1024 * 3, 15, 9),
+            YBlock(1024, 1024),
+
             nn.PixelShuffle(2),
-            XBlock(128, 512, 9, 5),
-            XBlock(128, 512, 9, 5),
-            XBlock(128, 512, 9, 5),
-            XBlock(128, 512, 9, 5),
+
+            XBlock(256, 256 * 3, 11, 7),
+            YBlock(256, 396),
+            XBlock(396, 396 * 3, 11, 7),
+            YBlock(396, 512),
+            
             nn.PixelShuffle(2),
-            XBlock(32, 128, 9, 5),
-            XBlock(32, 128, 9, 5),
-            XBlock(32, 128, 9, 5),
-            XBlock(32, 128, 9, 5),
-            nn.Conv2d(32, 8, 3, 1, 1),
+
+            XBlock(128, 128 * 3, 9, 5),
+            YBlock(128, 128),
+
+            nn.Conv2d(128, 8, 3, 1, 1),
             nn.Sigmoid()
         )
 

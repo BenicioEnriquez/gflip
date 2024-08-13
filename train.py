@@ -13,31 +13,20 @@ from torchvision.transforms import v2 as T
 from torchvision.utils import make_grid
 from PIL import Image
 
-import mobileclip
 from GFLIP import Generator
 from datasets import ImageSet
-from processors import DepthPipe
+from processors import DepthPipe, getCLIP
 
+wandb.require("core")
 torch.backends.cudnn.benchmark = True
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
-batchsize = 12
+batchsize = 8
 epochs = 10
 loadpt = -1
 stats = True
-
-clip, _, preprocess = mobileclip.create_model_and_transforms(f'mobileclip_s0', pretrained=f'./models/mobileclip_s0.pt')
-clip = clip.to(device)
-
-for p in clip.image_encoder.parameters():
-    p.requires_grad = False
-clip.image_encoder.eval()
-
-for p in clip.text_encoder.parameters():
-    p.requires_grad = False
-clip.text_encoder.eval()
 
 dataset = ImageSet("C:/Datasets/Imagenet/Data")
 dataloader = DataLoader(dataset, batch_size=batchsize, shuffle=True, pin_memory=True)
@@ -65,6 +54,7 @@ scaler = torch.cuda.amp.GradScaler()
 check = nn.HuberLoss()
 
 depth = DepthPipe(518)
+clip, preprocess = getCLIP()
 
 frameT = preprocess(Image.open("./imgs/dogcat.jpg").convert('RGB')).cuda().unsqueeze(0)
 embedT = clip.encode_image(frameT, patch=True)
@@ -97,16 +87,16 @@ for epoch in range(epochs):
             ], dim=1)
 
             mask = torch.concat([
-                getmask(istack.size(0), 1, randf(0.1, 0.3), randi(0, 5)),
+                getmask(istack.size(0), 1, randf(0.1, 0.3), randi(0, 6)),
                 torch.concat([
-                    getmask(istack.size(0)-2, 3, randf(0.0, 0.3), randi(0, 5)),
+                    getmask(istack.size(0)-2, 3, randf(0.1, 0.3), randi(0, 6)),
                     torch.zeros(1, 3, 256, 256).to(device),
                     torch.zeros(1, 3, 256, 256).to(device),
                 ]),
-                getmask(istack.size(0), 1, randf(0.1, 0.3), randi(0, 5)),
+                getmask(istack.size(0), 1, randf(0.1, 0.3), randi(0, 6)),
                 torch.concat([
                     torch.zeros(1, 3, 256, 256).to(device),
-                    getmask(istack.size(0)-2, 3, randf(0.0, 0.3), randi(0, 5)),
+                    getmask(istack.size(0)-2, 3, randf(0.1, 0.3), randi(0, 6)),
                     torch.zeros(1, 3, 256, 256).to(device),
                 ]),
             ], dim=1)
@@ -201,7 +191,7 @@ for epoch in range(epochs):
                         torch.ones(1, 1, 256, 256).to(device),
                         torch.zeros(1, 3, 256, 256).to(device),
                         torch.ones(1, 1, 256, 256).to(device),
-                        getmask(1, 3, 0.1, 3-m)
+                        getmask(1, 3, 0.2, 4-m)
                     ], dim=1)
                     imask = (1 - mask)
 
