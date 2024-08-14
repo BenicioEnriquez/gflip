@@ -87,16 +87,16 @@ for epoch in range(epochs):
             ], dim=1)
 
             mask = torch.concat([
-                getmask(istack.size(0), 1, randf(0.1, 0.3), randi(0, 6)),
+                getmask(istack.size(0), 1, randf(0.1, 0.3), randi(0, 3)),
                 torch.concat([
-                    getmask(istack.size(0)-2, 3, randf(0.1, 0.3), randi(0, 6)),
+                    getmask(istack.size(0)-2, 3, randf(0.1, 0.3), randi(0, 3)),
                     torch.zeros(1, 3, 256, 256).to(device),
                     torch.zeros(1, 3, 256, 256).to(device),
                 ]),
-                getmask(istack.size(0), 1, randf(0.1, 0.3), randi(0, 6)),
+                getmask(istack.size(0), 1, randf(0.1, 0.3), randi(0, 3)),
                 torch.concat([
                     torch.zeros(1, 3, 256, 256).to(device),
-                    getmask(istack.size(0)-2, 3, randf(0.1, 0.3), randi(0, 6)),
+                    getmask(istack.size(0)-2, 3, randf(0.1, 0.3), randi(0, 3)),
                     torch.zeros(1, 3, 256, 256).to(device),
                 ]),
             ], dim=1)
@@ -191,7 +191,7 @@ for epoch in range(epochs):
                         torch.ones(1, 1, 256, 256).to(device),
                         torch.zeros(1, 3, 256, 256).to(device),
                         torch.ones(1, 1, 256, 256).to(device),
-                        getmask(1, 3, 0.2, 4-m)
+                        getmask(1, 3, 0.2, 3-m)
                     ], dim=1)
                     imask = (1 - mask)
 
