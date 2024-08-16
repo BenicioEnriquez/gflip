@@ -40,7 +40,7 @@ params = np.sum([p.numel() for p in gen.parameters()]).item()/10**6
 
 if stats:
     wandb.init(
-        project = 'GFLIP-M',
+        project = 'GFLIP-S',
         config = {
             'params': params,
             'batchsize': batchsize,
@@ -74,6 +74,7 @@ for epoch in range(epochs):
 
         optimizer.zero_grad()
         with torch.cuda.amp.autocast():
+            embedA = clip.encode_image(frameA, patch=True)
             embedB = clip.encode_image(frameB, patch=True)
 
             depthA = depth(frameA)
@@ -87,16 +88,16 @@ for epoch in range(epochs):
             ], dim=1)
 
             mask = torch.concat([
-                getmask(istack.size(0), 1, randf(0.1, 0.3), randi(0, 3)),
+                getmask(istack.size(0), 1, randf(0.1, 0.3), randi(0, 4)),
                 torch.concat([
-                    getmask(istack.size(0)-2, 3, randf(0.1, 0.3), randi(0, 3)),
+                    getmask(istack.size(0)-2, 3, randf(0.1, 0.3), randi(0, 4)),
                     torch.zeros(1, 3, 256, 256).to(device),
                     torch.zeros(1, 3, 256, 256).to(device),
                 ]),
-                getmask(istack.size(0), 1, randf(0.1, 0.3), randi(0, 3)),
+                getmask(istack.size(0), 1, randf(0.1, 0.3), randi(0, 4)),
                 torch.concat([
                     torch.zeros(1, 3, 256, 256).to(device),
-                    getmask(istack.size(0)-2, 3, randf(0.1, 0.3), randi(0, 3)),
+                    getmask(istack.size(0)-2, 3, randf(0.1, 0.3), randi(0, 4)),
                     torch.zeros(1, 3, 256, 256).to(device),
                 ]),
             ], dim=1)
@@ -105,7 +106,7 @@ for epoch in range(epochs):
 
             # T.ToPILImage()((istack * mask)[0, -3:]).show()
 
-            ostack = gen(istack, mask, embedB)
+            ostack = gen(istack, mask, embedA, embedB)
             
             frameC = (istack * mask + ostack * imask)[:, -3:]
 
@@ -149,7 +150,7 @@ for epoch in range(epochs):
                 tests = [
                     frameT,
                     torch.repeat_interleave(depthT, 3, 1),
-                    gen(istack, mask, embedT)[:, -3:]
+                    gen(istack, mask, embedT, embedT)[:, -3:]
                 ]
 
                 # TEST 2
@@ -162,7 +163,7 @@ for epoch in range(epochs):
                 ], dim=1)
                 imask = (1 - mask)
 
-                ostack = gen(istack, mask, embedT) * imask + istack * mask
+                ostack = gen(istack, mask, embedT, embedT) * imask + istack * mask
                 tests.append(ostack[:, 1:4])
                 tests.append(torch.repeat_interleave(ostack[:, 4:5], 3, 1))
                 tests.append(ostack[:, -3:])
@@ -185,7 +186,7 @@ for epoch in range(epochs):
                 imask = (1 - mask)
 
                 for m in range(3):
-                    istack = gen(istack, mask, embedT) * imask + istack * mask
+                    istack = gen(istack, mask, embedT, embedT) * imask + istack * mask
                     tests.append(istack[:, -3:])
                     mask = torch.concat([
                         torch.ones(1, 1, 256, 256).to(device),

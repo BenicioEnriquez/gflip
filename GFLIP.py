@@ -26,7 +26,7 @@ class YBlock(nn.Module):
         super(YBlock, self).__init__()
 
         self.net = nn.Sequential(
-            nn.Conv2d(i, o, 7, 1, 3),
+            nn.Conv2d(i, o, 3, 1, 1),
             nn.ReLU(inplace=True)
         )
     
@@ -38,12 +38,10 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
 
         self.headblk = nn.Sequential(
-            nn.PixelUnshuffle(4)
+            nn.PixelUnshuffle(8)
         )
 
         self.clipblk = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear'),
-            YBlock(512, 512),
             nn.Upsample(scale_factor=2, mode='bilinear'),
             YBlock(512, 396),
             nn.Upsample(scale_factor=2, mode='bilinear'),
@@ -51,25 +49,30 @@ class Generator(nn.Module):
         )
 
         self.mainblk = nn.Sequential(
-            XBlock(512, 512 * 3, 15, 9),
-            YBlock(512, 512),
-            XBlock(512, 512 * 3, 15, 9),
-            YBlock(512, 768),
-            XBlock(768, 768 * 3, 15, 9),
-            YBlock(768, 1024),
-            XBlock(1024, 1024 * 3, 15, 9),
-            YBlock(1024, 1024),
+            XBlock(1536, 1536 * 3, 7, 5),
+            YBlock(1536, 1536),
+            XBlock(1536, 1536 * 3, 7, 5),
+            YBlock(1536, 2048),
+            XBlock(2048, 2048 * 3, 7, 5),
+            YBlock(2048, 2048),
 
             nn.PixelShuffle(2),
 
-            XBlock(256, 256 * 3, 11, 7),
+            XBlock(512, 512 * 3, 7, 5),
+            YBlock(512, 768),
+            XBlock(768, 768 * 3, 7, 5),
+            YBlock(768, 1024),
+
+            nn.PixelShuffle(2),
+
+            XBlock(256, 256 * 3, 5, 3),
             YBlock(256, 396),
-            XBlock(396, 396 * 3, 11, 7),
+            XBlock(396, 396 * 3, 5, 3),
             YBlock(396, 512),
             
             nn.PixelShuffle(2),
 
-            XBlock(128, 128 * 3, 9, 5),
+            XBlock(128, 128 * 3, 5, 3),
             YBlock(128, 128),
 
             nn.Conv2d(128, 8, 3, 1, 1),
@@ -77,10 +80,11 @@ class Generator(nn.Module):
         )
 
 
-    def forward(self, x, m, c):
+    def forward(self, x, m, c1, c2):
         x = torch.concat([x * m, m], dim=1)
         x = self.headblk(x)
-        c = self.clipblk(c)
-        x = torch.concat([x, c], dim=1)
+        c1 = self.clipblk(c1)
+        c2 = self.clipblk(c2)
+        x = torch.concat([x, c1, c2], dim=1)
         return self.mainblk(x)
 
