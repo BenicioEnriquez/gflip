@@ -62,7 +62,7 @@ depthT = depth(frameT)
 
 def getmask(b, c, m, p):
     s = 256 // (2 ** p)
-    return nn.Upsample((256, 256))(torch.repeat_interleave(torch.rand((b, 1, s, s)) * (0.5 + m * 0.5), c, 1).round()).to(device)
+    return nn.Upsample((256, 256))(torch.repeat_interleave((torch.rand(b, 1, s, s) < m).float(), c, 1).round()).to(device)
 
 t = time.time()
 
