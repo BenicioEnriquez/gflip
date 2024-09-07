@@ -15,7 +15,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
 loadpt = 0
-mult = 1
+mult = 2
 dtype = torch.float16
 
 gen = Generator().to(device, dtype)
@@ -26,13 +26,14 @@ params = np.sum([p.numel() for p in gen.parameters()]).item()/10**6
 
 print("Params:", params)
 
+nsize = int(256 * mult)
 depth = DepthPipe(518)
 clip, preprocess = getCLIP()
 clip.to(device, dtype)
 
 def getmask(b, c, m, p):
-    s = 256 // (2 ** p)
-    return nn.Upsample((256, 256))(torch.repeat_interleave((torch.rand(b, 1, s, s) < m).float(), c, 1).round()).to(device, dtype)
+    s = nsize // (2 ** p)
+    return nn.Upsample((nsize, nsize))(torch.repeat_interleave((torch.rand(b, 1, s, s) < m).float(), c, 1).round()).to(device, dtype)
 
 scale = torch.nn.Upsample(scale_factor=mult, mode='bilinear')
 frameT = preprocess(Image.open("./imgs/modern.png").convert('RGB')).unsqueeze(0).to(device, dtype)
@@ -51,15 +52,15 @@ istack = torch.concat([
 ], dim=1)
 
 mask = torch.concat([
-    getmask(1, 1, 0.1, 0),
-    getmask(1, 3, 0.1, 0),
-    getmask(1, 1, 0.1, 0),
+    getmask(1, 1, 0.15, 0),
+    getmask(1, 3, 0.15, 0),
+    getmask(1, 1, 0.15, 0),
     getmask(1, 3, 0.0, 0),
 ], dim=1)
 imask = (1 - mask)
 
 with torch.inference_mode():
-    for x in range(8):
+    for x in range(4):
             
         t = time.time()
         ostack = gen(istack, mask, embedT, embedT) * imask + istack * mask
@@ -86,7 +87,7 @@ with torch.inference_mode():
             getmask(1, 1, 0.15, 0),
             getmask(1, 3, 0.15, 0),
             getmask(1, 1, 0.15, 0),
-            getmask(1, 3, 0.05, 0),
+            getmask(1, 3, 0.15, 0),
         ], dim=1)
         imask = (1 - mask)
 
