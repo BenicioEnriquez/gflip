@@ -23,10 +23,10 @@ torch.backends.cudnn.benchmark = True
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
-batchsize = 4
+batchsize = 8
 epochs = 10
 loadpt = -1
-stats = False
+stats = True
 
 dataset = ImageSet("C:/Datasets/Imagenet/Data")
 dataloader = DataLoader(dataset, batch_size=batchsize, shuffle=True, pin_memory=True)
@@ -100,16 +100,16 @@ for epoch in range(epochs):
             ], dim=1)
 
             mask = torch.concat([
-                getmask(bs, 4, randf(0.1, 0.3), randi(0, 4)),
+                getmask(bs, 4, randf(0.1, 0.3), randi(0, 2)),
                 torch.concat([
-                    getmask(bs-2, 16, randf(0.1, 0.3), randi(0, 4)),
+                    getmask(bs-2, 16, randf(0.1, 0.3), randi(0, 2)),
                     torch.zeros(1, 16, 32, 32).to(device),
                     torch.zeros(1, 16, 32, 32).to(device),
                 ]),
-                getmask(bs, 4, randf(0.1, 0.3), randi(0, 4)),
+                getmask(bs, 4, randf(0.1, 0.3), randi(0, 2)),
                 torch.concat([
                     torch.zeros(1, 16, 32, 32).to(device),
-                    getmask(bs-2, 16, randf(0.1, 0.3), randi(0, 4)),
+                    getmask(bs-2, 16, randf(0.1, 0.3), randi(0, 2)),
                     torch.zeros(1, 16, 32, 32).to(device),
                 ]),
             ], dim=1)
@@ -160,9 +160,9 @@ for epoch in range(epochs):
                 # TEST 2
 
                 mask = torch.concat([
-                    getmask(1, 4, 0.3, 3),
-                    getmask(1, 16, 0.3, 3),
-                    getmask(1, 4, 0.3, 3),
+                    getmask(1, 4, 0.3, 1),
+                    getmask(1, 16, 0.3, 1),
+                    getmask(1, 4, 0.3, 1),
                     torch.zeros(1, 16, 32, 32).to(device)
                 ], dim=1)
                 imask = (1 - mask)
@@ -196,7 +196,7 @@ for epoch in range(epochs):
                         torch.ones(1, 4, 32, 32).to(device),
                         torch.zeros(1, 16, 32, 32).to(device),
                         torch.ones(1, 4, 32, 32).to(device),
-                        getmask(1, 16, 0.2, 3-m)
+                        getmask(1, 16, 0.2, 2-m)
                     ], dim=1)
                     imask = (1 - mask)
 

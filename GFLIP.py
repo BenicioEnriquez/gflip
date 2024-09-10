@@ -41,25 +41,24 @@ class Generator(nn.Module):
 
         self.mainblk = nn.Sequential(
 
-            XBlock(2304, 2304 * 3, 7, 5),
-            YBlock(2304, 3072),
-            XBlock(3072, 3072 * 3, 7, 5),
-            YBlock(3072, 4096),
+            XBlock(2304, 2304 * 4, 5, 3),
+            YBlock(2304, 4096),
+            XBlock(4096, 4096 * 4, 5, 3),
+            YBlock(4096, 4096),
 
             nn.PixelShuffle(2),
 
-            XBlock(1024, 1024 * 3, 5, 3),
-            YBlock(1024, 1536),
-            XBlock(1536, 1536 * 3, 5, 3),
-            YBlock(1536, 2048),
+            XBlock(1024, 1024 * 4, 5, 3),
+            YBlock(1024, 2048),
+            XBlock(2048, 2048 * 4, 5, 3),
+            YBlock(2048, 2048),
             
             nn.PixelShuffle(2),
 
-            XBlock(512, 512 * 3, 5, 3),
+            XBlock(512, 512 * 4, 5, 3),
             YBlock(512, 512),
 
-            nn.Conv2d(512, 40, 3, 1, 1),
-            nn.Sigmoid()
+            nn.Conv2d(512, 40, 3, 1, 1)
         )
 
 
