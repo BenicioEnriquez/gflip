@@ -80,8 +80,9 @@ class Generator(nn.Module):
         )
 
 
-    def forward(self, x, m, c1, c2):
-        x = torch.concat([x * m, m], dim=1)
+    def forward(self, x, p, c1, c2, n):
+        m = (p > 0.5).float()
+        x = torch.concat([x * m + n * (1 - m), p], dim=1)
         x = self.headblk(x)
         c1 = self.clipblk(c1)
         c2 = self.clipblk(c2)
