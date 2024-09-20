@@ -23,13 +23,16 @@ torch.backends.cudnn.benchmark = True
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
-batchsize = 8
+batchsize = 4
 epochs = 10
 loadpt = -1
 stats = True
 
+print("Loading Data... ", end = "")
 dataset = ImageSet("C:/Datasets/Imagenet/Data")
 dataloader = DataLoader(dataset, batch_size=batchsize, shuffle=True, pin_memory=True)
+ld = len(dataloader)
+print(ld * batchsize, "images loaded")
 
 gen = Generator().to(device)
 
@@ -64,7 +67,7 @@ def getprobs(b, c, r, p):
     s = 256 // (2 ** p)
     x = ((torch.rand(b, 1, s, s).to(device) * 2) - 1) + ((r * 2) - 1)
     x = nn.functional.sigmoid(x)
-    x = torch.repeat_interleave(x, c, 1).round()
+    x = torch.repeat_interleave(x, c, 1)
     return nn.Upsample((256, 256))(x)
 
 t = time.time()
@@ -76,6 +79,10 @@ for epoch in range(epochs):
 
         frameA = frameA.to(device)
         frameB = frameB.to(device)
+
+
+        ratio = (1 - (i/ld)) * 0.95
+        msize = int((i/ld) * 5)
 
         optimizer.zero_grad()
         with torch.cuda.amp.autocast():
@@ -92,24 +99,31 @@ for epoch in range(epochs):
                 frameB
             ], dim=1)
 
+            # probs = torch.concat([
+            #     getprobs(bs, 1, ratio, randi(0, 4)),
+            #     torch.concat([
+            #         getprobs(bs-2, 3, ratio, randi(0, 4)),
+            #         getprobs(2, 3, 0, 0),
+            #     ]),
+            #     getprobs(bs, 1, ratio, randi(0, 4)),
+            #     torch.concat([
+            #         getprobs(1, 3, 0, 0),
+            #         getprobs(bs-2, 3, ratio, randi(0, 4)),
+            #         getprobs(1, 3, 0, 0),
+            #     ]),
+            # ], dim=1)
+
             probs = torch.concat([
-                getprobs(bs, 1, randf(0.1, 0.3), randi(0, 4)),
-                torch.concat([
-                    getprobs(bs-2, 3, randf(0.1, 0.3), randi(0, 4)),
-                    getprobs(2, 3, 0, 0),
-                ]),
-                getprobs(bs, 1, randf(0.1, 0.3), randi(0, 4)),
-                torch.concat([
-                    getprobs(1, 3, 0, 0),
-                    getprobs(bs-2, 3, randf(0.1, 0.3), randi(0, 4)),
-                    getprobs(1, 3, 0, 0),
-                ]),
+                getprobs(bs, 1, ratio, msize),
+                getprobs(bs, 3, ratio, msize),
+                getprobs(bs, 1, ratio, msize),
+                getprobs(bs, 3, ratio, msize),
             ], dim=1)
+
+            # T.ToPILImage()(probs[0, -3:]).show()
 
             mask = (probs > 0.5).float()
             imask = (1 - mask)
-
-            # T.ToPILImage()((istack * mask)[1, -3:]).show()
 
             noise = torch.randn(bs, 8, 256, 256).to(device)
             ostack = gen(istack, probs, embedA, embedB, noise)
@@ -135,7 +149,7 @@ for epoch in range(epochs):
         
         if i % 50 == 0:
 
-            print(f"[Epoch {epoch}/{epochs}] [Batch {i}/{len(dataloader)}] [loss: {loss.item():.8f}] [CLIP: {clipsim.item():.4f}] [time: {(time.time() - t):.1f}s]")
+            print(f"[Epoch {epoch}/{epochs}] [Batch {i}/{ld}] [loss: {loss.item():.8f}] [CLIP: {clipsim.item():.4f}] [time: {(time.time() - t):.1f}s]")
             
             with torch.no_grad():
 
@@ -164,9 +178,9 @@ for epoch in range(epochs):
                 # TEST 2
 
                 probs = torch.concat([
-                    getprobs(1, 1, 0.3, 3),
-                    getprobs(1, 3, 0.3, 3),
-                    getprobs(1, 1, 0.3, 3),
+                    getprobs(1, 1, ratio, msize),
+                    getprobs(1, 3, ratio, msize),
+                    getprobs(1, 1, ratio, msize),
                     getprobs(1, 3, 0, 0),
                 ], dim=1)
 

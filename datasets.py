@@ -20,7 +20,7 @@ class ImageSet(Dataset):
             T.RandomHorizontalFlip()
         ])
         self.tail = T.Compose([
-            T.RandomCrop(256),
+            T.RandomResizedCrop(256),
             T.ToDtype(torch.float32, scale=True)
         ])
     

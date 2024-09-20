@@ -38,54 +38,76 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
 
         self.headblk = nn.Sequential(
-            nn.PixelUnshuffle(8)
-        )
+            XBlock(8, 8 * 4, 3, 3),
 
-        self.clipblk = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear'),
-            YBlock(512, 396),
-            nn.Upsample(scale_factor=2, mode='bilinear'),
-            YBlock(396, 256),
+            nn.PixelUnshuffle(2),
+
+            XBlock(32, 32 * 4, 3, 3),
+            YBlock(32, 16),
+
+            nn.PixelUnshuffle(2),
+
+            XBlock(64, 64 * 4, 3, 3),
+
+            nn.PixelUnshuffle(2),
+
+            XBlock(256, 256 * 4, 3, 3),
+            YBlock(256, 128),
+
+            nn.PixelUnshuffle(2),
+
+            XBlock(512, 512 * 4, 3, 3),
+
+            nn.PixelUnshuffle(2),
+
+            XBlock(2048, 2048 * 4, 3, 3),
+            YBlock(2048, 1024),
         )
 
         self.mainblk = nn.Sequential(
-            XBlock(1536, 1536 * 3, 7, 5),
-            YBlock(1536, 1536),
-            XBlock(1536, 1536 * 3, 7, 5),
-            YBlock(1536, 2048),
-            XBlock(2048, 2048 * 3, 7, 5),
-            YBlock(2048, 2048),
+            YBlock(3072, 4096),
 
             nn.PixelShuffle(2),
 
-            XBlock(512, 512 * 3, 7, 5),
-            YBlock(512, 768),
-            XBlock(768, 768 * 3, 7, 5),
-            YBlock(768, 1024),
-
-            nn.PixelShuffle(2),
-
-            XBlock(256, 256 * 3, 5, 3),
-            YBlock(256, 396),
-            XBlock(396, 396 * 3, 5, 3),
-            YBlock(396, 512),
+            YBlock(1024, 2048),
             
             nn.PixelShuffle(2),
 
-            XBlock(128, 128 * 3, 5, 3),
-            YBlock(128, 128),
+            YBlock(512, 1024),
+            YBlock(1024, 1024),
+            
+            nn.PixelShuffle(2),
 
-            nn.Conv2d(128, 8, 3, 1, 1),
+            YBlock(256, 512),
+            YBlock(512, 512),
+            
+            nn.PixelShuffle(2),
+
+            YBlock(128, 256),
+            YBlock(256, 256),
+            YBlock(256, 256),
+
+            nn.PixelShuffle(2),
+
+            YBlock(64, 64),
+            YBlock(64, 64),
+            YBlock(64, 64),
+
+            nn.Conv2d(64, 8, 3, 1, 1),
             nn.Sigmoid()
         )
 
 
     def forward(self, x, p, c1, c2, n):
         m = (p > 0.5).float()
-        x = torch.concat([x * m + n * (1 - m), p], dim=1)
-        x = self.headblk(x)
-        c1 = self.clipblk(c1)
-        c2 = self.clipblk(c2)
-        x = torch.concat([x, c1, c2], dim=1)
+        # x1 = torch.concat([x[:, :4] * m[:, :4] + n[:, :4] * (1 - m[:, :4]), p[:, :4]], dim=1)
+        # x2 = torch.concat([x[:, -4:] * m[:, -4:] + n[:, -4:] * (1 - m[:, -4:]), p[:, -4:]], dim=1)
+        x1 = torch.concat([x[:, :4] * m[:, :4] + n[:, :4] * (1 - m[:, :4]), (p[:, :4] * 2) - 1], dim=1)
+        x2 = torch.concat([x[:, -4:] * m[:, -4:] + n[:, -4:] * (1 - m[:, -4:]), (p[:, -4:] * 2) - 1], dim=1)
+        # x1 = torch.concat([x[:, :4] * m[:, :4], m[:, :4]], dim=1)
+        # x2 = torch.concat([x[:, -4:] * m[:, -4:], m[:, -4:]], dim=1)
+        x1 = self.headblk(x1)
+        x2 = self.headblk(x2)
+        x = torch.concat([x1, x2, c1, c2], dim=1)
         return self.mainblk(x)
 
