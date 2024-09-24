@@ -29,8 +29,12 @@ class YBlock(nn.Module):
             nn.Conv2d(i, o, 3, 1, 1),
             nn.ReLU(inplace=True)
         )
+
+        self.skip = i == o
     
     def forward(self, x):
+        if self.skip:
+            return self.net(x) + x
         return self.net(x)
 
 class Generator(nn.Module):
@@ -38,30 +42,29 @@ class Generator(nn.Module):
         super(Generator, self).__init__()
 
         self.headblk = nn.Sequential(
-            XBlock(8, 8 * 4, 3, 3),
+            XBlock(4, 4 * 4, 3, 3),
+
+            nn.PixelUnshuffle(2),
+
+            XBlock(16, 16 * 4, 3, 3),
+            YBlock(16, 8),
 
             nn.PixelUnshuffle(2),
 
             XBlock(32, 32 * 4, 3, 3),
-            YBlock(32, 16),
 
             nn.PixelUnshuffle(2),
 
-            XBlock(64, 64 * 4, 3, 3),
+            XBlock(128, 128 * 4, 3, 3),
+            YBlock(128, 64),
 
             nn.PixelUnshuffle(2),
 
             XBlock(256, 256 * 4, 3, 3),
-            YBlock(256, 128),
 
             nn.PixelUnshuffle(2),
 
-            XBlock(512, 512 * 4, 3, 3),
-
-            nn.PixelUnshuffle(2),
-
-            XBlock(2048, 2048 * 4, 3, 3),
-            YBlock(2048, 1024),
+            XBlock(1024, 1024 * 4, 3, 3),
         )
 
         self.mainblk = nn.Sequential(
@@ -70,6 +73,7 @@ class Generator(nn.Module):
             nn.PixelShuffle(2),
 
             YBlock(1024, 2048),
+            YBlock(2048, 2048),
             
             nn.PixelShuffle(2),
 
@@ -98,14 +102,9 @@ class Generator(nn.Module):
         )
 
 
-    def forward(self, x, p, c1, c2, n):
-        m = (p > 0.5).float()
-        # x1 = torch.concat([x[:, :4] * m[:, :4] + n[:, :4] * (1 - m[:, :4]), p[:, :4]], dim=1)
-        # x2 = torch.concat([x[:, -4:] * m[:, -4:] + n[:, -4:] * (1 - m[:, -4:]), p[:, -4:]], dim=1)
-        x1 = torch.concat([x[:, :4] * m[:, :4] + n[:, :4] * (1 - m[:, :4]), (p[:, :4] * 2) - 1], dim=1)
-        x2 = torch.concat([x[:, -4:] * m[:, -4:] + n[:, -4:] * (1 - m[:, -4:]), (p[:, -4:] * 2) - 1], dim=1)
-        # x1 = torch.concat([x[:, :4] * m[:, :4], m[:, :4]], dim=1)
-        # x2 = torch.concat([x[:, -4:] * m[:, -4:], m[:, -4:]], dim=1)
+    def forward(self, x, m, c1, c2):
+        x1 = (x[:, 0:4] + 1) * m[:, 0:4] - 1
+        x2 = (x[:, -4:] + 1) * m[:, -4:] - 1
         x1 = self.headblk(x1)
         x2 = self.headblk(x2)
         x = torch.concat([x1, x2, c1, c2], dim=1)

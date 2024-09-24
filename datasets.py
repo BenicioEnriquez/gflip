@@ -16,11 +16,11 @@ class ImageSet(Dataset):
         ]
         self.head = T.Compose([
             T.ToImage(),
-            T.RandomResizedCrop(384),
+            T.RandomResizedCrop(384, scale=(0.2, 1.0)),
             T.RandomHorizontalFlip()
         ])
         self.tail = T.Compose([
-            T.RandomResizedCrop(256),
+            T.RandomResizedCrop(256, scale=(0.7, 1.0)),
             T.ToDtype(torch.float32, scale=True)
         ])
     

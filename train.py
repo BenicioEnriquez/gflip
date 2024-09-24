@@ -23,7 +23,7 @@ torch.backends.cudnn.benchmark = True
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
-batchsize = 4
+batchsize = 16
 epochs = 10
 loadpt = -1
 stats = True
@@ -63,12 +63,12 @@ frameT = preprocess(Image.open("./imgs/dogcat.jpg").convert('RGB')).cuda().unsqu
 embedT = clip.encode_image(frameT, patch=True)
 depthT = depth(frameT)
 
-def getprobs(b, c, r, p):
+def getmask(b, c, r, p):
     s = 256 // (2 ** p)
-    x = ((torch.rand(b, 1, s, s).to(device) * 2) - 1) + ((r * 2) - 1)
-    x = nn.functional.sigmoid(x)
+    x = torch.rand(b, 1, s, s).to(device)
     x = torch.repeat_interleave(x, c, 1)
-    return nn.Upsample((256, 256))(x)
+    x = nn.Upsample((256, 256))(x)
+    return (x < r).float()
 
 t = time.time()
 
@@ -82,7 +82,7 @@ for epoch in range(epochs):
 
 
         ratio = (1 - (i/ld)) * 0.95
-        msize = int((i/ld) * 5)
+        msize = 3
 
         optimizer.zero_grad()
         with torch.cuda.amp.autocast():
@@ -99,34 +99,33 @@ for epoch in range(epochs):
                 frameB
             ], dim=1)
 
-            # probs = torch.concat([
-            #     getprobs(bs, 1, ratio, randi(0, 4)),
+            # mask = torch.concat([
+            #     getmask(bs, 1, ratio, randi(0, 4)),
             #     torch.concat([
-            #         getprobs(bs-2, 3, ratio, randi(0, 4)),
-            #         getprobs(2, 3, 0, 0),
+            #         getmask(bs-2, 3, ratio, randi(0, 4)),
+            #         getmask(2, 3, 0, 0),
             #     ]),
-            #     getprobs(bs, 1, ratio, randi(0, 4)),
+            #     getmask(bs, 1, ratio, randi(0, 4)),
             #     torch.concat([
-            #         getprobs(1, 3, 0, 0),
-            #         getprobs(bs-2, 3, ratio, randi(0, 4)),
-            #         getprobs(1, 3, 0, 0),
+            #         getmask(1, 3, 0, 0),
+            #         getmask(bs-2, 3, ratio, randi(0, 4)),
+            #         getmask(1, 3, 0, 0),
             #     ]),
             # ], dim=1)
 
-            probs = torch.concat([
-                getprobs(bs, 1, ratio, msize),
-                getprobs(bs, 3, ratio, msize),
-                getprobs(bs, 1, ratio, msize),
-                getprobs(bs, 3, ratio, msize),
+            mask = torch.concat([
+                getmask(bs, 1, ratio, msize),
+                getmask(bs, 3, ratio, msize),
+                getmask(bs, 1, ratio, msize),
+                getmask(bs, 3, ratio, msize),
             ], dim=1)
 
-            # T.ToPILImage()(probs[0, -3:]).show()
-
-            mask = (probs > 0.5).float()
             imask = (1 - mask)
 
-            noise = torch.randn(bs, 8, 256, 256).to(device)
-            ostack = gen(istack, probs, embedA, embedB, noise)
+            # T.ToPILImage()(frameA[0]).show()
+            # T.ToPILImage()(frameB[0]).show()
+
+            ostack = gen(istack, mask, embedA, embedB)
             
             frameC = (istack * mask + ostack * imask)[:, -3:]
 
@@ -153,41 +152,37 @@ for epoch in range(epochs):
             
             with torch.no_grad():
 
-                noise = torch.randn(1, 8, 256, 256).to(device)
-
                 # TEST 1
 
                 istack = torch.concat([
                     depthT,
                     frameT,
                     depthT,
-                    getprobs(1, 3, 0, 0),
+                    frameT,
                 ], dim=1)
 
-                probs = torch.concat([
-                    getprobs(1, 5, 1, 0),
-                    getprobs(1, 3, 0, 0),
+                mask = torch.concat([
+                    getmask(1, 5, ratio, msize),
+                    getmask(1, 3, 0, msize),
                 ], dim=1)
 
                 tests = [
                     frameT,
                     torch.repeat_interleave(depthT, 3, 1),
-                    gen(istack, probs, embedT, embedT, noise)[:, -3:]
+                    gen(istack, mask, embedT, embedT)[:, -3:]
                 ]
 
                 # TEST 2
 
-                probs = torch.concat([
-                    getprobs(1, 1, ratio, msize),
-                    getprobs(1, 3, ratio, msize),
-                    getprobs(1, 1, ratio, msize),
-                    getprobs(1, 3, 0, 0),
+                mask = torch.concat([
+                    getmask(1, 1, ratio, msize),
+                    getmask(1, 3, ratio, msize),
+                    getmask(1, 1, ratio, msize),
+                    getmask(1, 3, ratio, msize),
                 ], dim=1)
-
-                mask = (probs > 0.5).float()
                 imask = (1 - mask)
 
-                ostack = gen(istack, probs, embedT, embedT, noise) * imask + istack * mask
+                ostack = gen(istack, mask, embedT, embedT) * imask + istack * mask
                 tests.append(ostack[:, 1:4])
                 tests.append(torch.repeat_interleave(ostack[:, 4:5], 3, 1))
                 tests.append(ostack[:, -3:])
@@ -198,34 +193,28 @@ for epoch in range(epochs):
                     depthT,
                     frameT,
                     depthT,
-                    getprobs(1, 3, 0, 0),
+                    getmask(1, 3, 0, 0),
                 ], dim=1)
 
-                probs = torch.concat([
-                    getprobs(1, 1, 1, 0),
-                    getprobs(1, 3, 0, 0),
-                    getprobs(1, 1, 1, 0),
-                    getprobs(1, 3, 0, 0),
+                mask = torch.concat([
+                    getmask(1, 1, ratio, msize),
+                    getmask(1, 3, 0.0, msize),
+                    getmask(1, 1, ratio, msize),
+                    getmask(1, 3, 0.0, msize),
                 ], dim=1)
-
-                mask = (probs > 0.5).float()
                 imask = (1 - mask)
 
                 for m in range(3):
-                    istack = gen(istack, probs, embedT, embedT, noise) * imask + istack * mask
+                    istack = gen(istack, mask, embedT, embedT) * imask + istack * mask
                     tests.append(istack[:, -3:])
 
-                    probs = torch.concat([
-                        getprobs(1, 1, 1, 0),
-                        getprobs(1, 3, 0.2, 3-m),
-                        getprobs(1, 1, 1, 0),
-                        getprobs(1, 3, 0.2, 3-m)
+                    mask = torch.concat([
+                        getmask(1, 1, ratio, msize),
+                        getmask(1, 3, ratio, msize),
+                        getmask(1, 1, ratio, msize),
+                        getmask(1, 3, ratio, msize)
                     ], dim=1)
-
-                    mask = (probs > 0.5).float()
                     imask = (1 - mask)
-
-                    noise = torch.randn(1, 8, 256, 256).to(device)
 
                 outimgs = T.ToPILImage()(make_grid(torch.concat(tests), 3))
                 outimgs.save(f"./results/{epoch}-{i}.png")
