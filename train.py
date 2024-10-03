@@ -13,9 +13,9 @@ from torchvision.transforms import v2 as T
 from torchvision.utils import make_grid
 from PIL import Image
 
-from GFLIP import Generator
+from GFLIP import Generator, Discriminator
 from datasets import ImageSet
-from processors import DepthPipe, getCLIP
+from processors import *
 
 wandb.require("core")
 torch.backends.cudnn.benchmark = True
@@ -23,10 +23,10 @@ torch.backends.cudnn.benchmark = True
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
-batchsize = 16
+batchsize = 8
 epochs = 10
 loadpt = -1
-stats = True
+stats = False
 
 print("Loading Data... ", end = "")
 dataset = ImageSet("C:/Datasets/Imagenet/Data")
@@ -35,40 +35,41 @@ ld = len(dataloader)
 print(ld * batchsize, "images loaded")
 
 gen = Generator().to(device)
+dis = Discriminator().to(device)
 
 if loadpt > -1:
     gen.load_state_dict(torch.load(f'./models/gen_{loadpt}.pth').state_dict())
+    dis.load_state_dict(torch.load(f'./models/dis_{loadpt}.pth').state_dict())
 
-params = np.sum([p.numel() for p in gen.parameters()]).item()/10**6
+paramsG = np.sum([p.numel() for p in gen.parameters()]).item()/10**6
+paramsD = np.sum([p.numel() for p in dis.parameters()]).item()/10**6
 
 if stats:
     wandb.init(
-        project = 'GFLIP-S',
+        project = 'GFLIP-A',
         config = {
-            'params': params,
+            'gen_params': paramsG,
+            'dis_params': paramsD,
             'batchsize': batchsize,
         }
     )
 
-print("Params:", params)
+print("Gen Params:", paramsG)
+print("Dis Params:", paramsD)
 
-optimizer = optim.NAdam(gen.parameters(), lr=0.0001, betas=(0.0, 0.9))
-scaler = torch.cuda.amp.GradScaler()
-check = nn.HuberLoss()
+optimizerG = optim.NAdam(gen.parameters(), lr=0.0001, betas=(0.0, 0.9))
+optimizerD = optim.NAdam(dis.parameters(), lr=0.0003, betas=(0.0, 0.9))
+scalerG = torch.cuda.amp.GradScaler()
+scalerD = torch.cuda.amp.GradScaler()
+check = nn.BCEWithLogitsLoss()
 
-depth = DepthPipe(518)
+# depth = DepthPipe(518)
 clip, preprocess = getCLIP()
+vae = getVAE()
 
 frameT = preprocess(Image.open("./imgs/dogcat.jpg").convert('RGB')).cuda().unsqueeze(0)
 embedT = clip.encode_image(frameT, patch=True)
-depthT = depth(frameT)
-
-def getmask(b, c, r, p):
-    s = 256 // (2 ** p)
-    x = torch.rand(b, 1, s, s).to(device)
-    x = torch.repeat_interleave(x, c, 1)
-    x = nn.Upsample((256, 256))(x)
-    return (x < r).float()
+ltimgT = vae.encode(frameT, False)[0]
 
 t = time.time()
 
@@ -80,148 +81,72 @@ for epoch in range(epochs):
         frameA = frameA.to(device)
         frameB = frameB.to(device)
 
-
-        ratio = (1 - (i/ld)) * 0.95
-        msize = 3
-
-        optimizer.zero_grad()
+        optimizerG.zero_grad()
         with torch.cuda.amp.autocast():
+
+            ltimgA = vae.encode(frameA, False)[0]
             embedA = clip.encode_image(frameA, patch=True)
-            embedB = clip.encode_image(frameB, patch=True)
 
-            depthA = depth(frameA)
-            depthB = depth(frameB)
+            ltimgC = gen(embedA)
 
-            istack = torch.concat([
-                depthA,
-                frameA,
-                depthB,
-                frameB
-            ], dim=1)
+            fake = dis(ltimgC)
 
-            # mask = torch.concat([
-            #     getmask(bs, 1, ratio, randi(0, 4)),
-            #     torch.concat([
-            #         getmask(bs-2, 3, ratio, randi(0, 4)),
-            #         getmask(2, 3, 0, 0),
-            #     ]),
-            #     getmask(bs, 1, ratio, randi(0, 4)),
-            #     torch.concat([
-            #         getmask(1, 3, 0, 0),
-            #         getmask(bs-2, 3, ratio, randi(0, 4)),
-            #         getmask(1, 3, 0, 0),
-            #     ]),
-            # ], dim=1)
+            gloss = check(fake, torch.zeros_like(fake))
 
-            mask = torch.concat([
-                getmask(bs, 1, ratio, msize),
-                getmask(bs, 3, ratio, msize),
-                getmask(bs, 1, ratio, msize),
-                getmask(bs, 3, ratio, msize),
-            ], dim=1)
-
-            imask = (1 - mask)
-
-            # T.ToPILImage()(frameA[0]).show()
-            # T.ToPILImage()(frameB[0]).show()
-
-            ostack = gen(istack, mask, embedA, embedB)
-            
-            frameC = (istack * mask + ostack * imask)[:, -3:]
-
+            frameC = vae.decode(ltimgC, return_dict=False)[0].clamp(0, 1)
             embedC = clip.encode_image(frameC, patch=True)
-            clipsim = torch.cosine_similarity(embedB, embedC).mean()
-            
-            loss = check(istack * imask, ostack * imask)
+            clipsim = torch.cosine_similarity(embedA, embedC).mean()
 
-        scaler.scale(loss).backward()
-        scaler.step(optimizer)
-        scaler.update()
-        if scaler.get_scale() < 64:
-            scaler.update(16384.0)
+            # print(ltimgC.min().item(), ltimgC.max().item())
+            # print(fake.min().item(), fake.max().item())
+
+        scalerG.scale(gloss + (1 - clipsim) * 3).backward()
+        scalerG.step(optimizerG)
+        scalerG.update()
+        if scalerG.get_scale() < 64:
+            scalerG.update(16384.0)
+
+        optimizerD.zero_grad()
+        with torch.cuda.amp.autocast():
+
+            fake = dis(gen(embedA).detach())
+            real = dis(ltimgA)
+
+            ferr = check(fake, torch.ones_like(fake))
+            rerr = check(real, torch.zeros_like(real))
+
+            dloss = ferr + rerr
+
+        if gloss.item() < dloss.item():
+            scalerD.scale(dloss).backward()
+            scalerD.step(optimizerD)
+            scalerD.update()
+            if scalerD.get_scale() < 64:
+                scalerD.update(16384.0)
+        
+        print(gloss.item(), dloss.item(), rerr.item(), rerr.item())
 
         if stats:
             wandb.log({
-                'loss': loss,
+                'gloss': gloss,
+                'dloss': dloss,
                 'clip_siml': clipsim
             })
         
         if i % 50 == 0:
 
-            print(f"[Epoch {epoch}/{epochs}] [Batch {i}/{ld}] [loss: {loss.item():.8f}] [CLIP: {clipsim.item():.4f}] [time: {(time.time() - t):.1f}s]")
+            print(f"[Epoch {epoch}/{epochs}] [Batch {i}/{ld}] [loss: {gloss.item():.8f}] [CLIP: {clipsim.item():.4f}] [time: {(time.time() - t):.1f}s]")
             
             with torch.no_grad():
-
-                # TEST 1
-
-                istack = torch.concat([
-                    depthT,
-                    frameT,
-                    depthT,
-                    frameT,
-                ], dim=1)
-
-                mask = torch.concat([
-                    getmask(1, 5, ratio, msize),
-                    getmask(1, 3, 0, msize),
-                ], dim=1)
-
-                tests = [
-                    frameT,
-                    torch.repeat_interleave(depthT, 3, 1),
-                    gen(istack, mask, embedT, embedT)[:, -3:]
-                ]
-
-                # TEST 2
-
-                mask = torch.concat([
-                    getmask(1, 1, ratio, msize),
-                    getmask(1, 3, ratio, msize),
-                    getmask(1, 1, ratio, msize),
-                    getmask(1, 3, ratio, msize),
-                ], dim=1)
-                imask = (1 - mask)
-
-                ostack = gen(istack, mask, embedT, embedT) * imask + istack * mask
-                tests.append(ostack[:, 1:4])
-                tests.append(torch.repeat_interleave(ostack[:, 4:5], 3, 1))
-                tests.append(ostack[:, -3:])
-
-                # TEST 3
-                
-                istack = torch.concat([
-                    depthT,
-                    frameT,
-                    depthT,
-                    getmask(1, 3, 0, 0),
-                ], dim=1)
-
-                mask = torch.concat([
-                    getmask(1, 1, ratio, msize),
-                    getmask(1, 3, 0.0, msize),
-                    getmask(1, 1, ratio, msize),
-                    getmask(1, 3, 0.0, msize),
-                ], dim=1)
-                imask = (1 - mask)
-
-                for m in range(3):
-                    istack = gen(istack, mask, embedT, embedT) * imask + istack * mask
-                    tests.append(istack[:, -3:])
-
-                    mask = torch.concat([
-                        getmask(1, 1, ratio, msize),
-                        getmask(1, 3, ratio, msize),
-                        getmask(1, 1, ratio, msize),
-                        getmask(1, 3, ratio, msize)
-                    ], dim=1)
-                    imask = (1 - mask)
-
-                outimgs = T.ToPILImage()(make_grid(torch.concat(tests), 3))
+                test = vae.decode(gen(embedT), return_dict=False)[0].clamp(0, 1)
+                outimgs = T.ToPILImage()(test[0])
                 outimgs.save(f"./results/{epoch}-{i}.png")
+
                 if stats:
                     wandb.log({
-                        'outputs': wandb.Image(outimgs.resize((512, 512)), caption=f'{epoch}-{i}')
+                        'outputs': wandb.Image(outimgs, caption=f'{epoch}-{i}')
                     })
+
                 torch.save(gen, f"./models/gen_{epoch}.pth")
             
             t = time.time()

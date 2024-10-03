@@ -4,6 +4,7 @@ import mobileclip
 from PIL import Image
 from torchvision import transforms as T
 from transformers import AutoModelForDepthEstimation
+from diffusers import AutoencoderTiny
 
 def getCLIP():
     clip, _, preprocess = mobileclip.create_model_and_transforms(f'mobileclip_s0', pretrained=f'./models/mobileclip_s0.pt')
@@ -18,6 +19,20 @@ def getCLIP():
     clip.text_encoder.eval()
 
     return clip, preprocess
+
+def getVAE():
+    vae = AutoencoderTiny.from_pretrained("madebyollin/taesd3")
+    vae = vae.to(torch.device("cuda"))
+
+    for p in vae.encoder.parameters():
+        p.requires_grad = False
+    vae.encoder.eval()
+
+    for p in vae.decoder.parameters():
+        p.requires_grad = False
+    vae.decoder.eval()
+
+    return vae
 
 class DepthPipe:
     def __init__(self, size=None):

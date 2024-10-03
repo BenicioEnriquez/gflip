@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import numpy as np
 import torch.nn.functional as F
 
 class XBlock(nn.Module):
@@ -15,7 +14,6 @@ class XBlock(nn.Module):
             nn.Conv2d(mid, mid, f2, 1, (f2-1)//2, 1, mid, False),
             nn.ReLU(inplace=True),
             nn.Conv2d(mid, ch, 1, 1, 0, 1, 1, False),
-            nn.ReLU(inplace=True),
         )
 
     def forward(self, x):
@@ -27,86 +25,80 @@ class YBlock(nn.Module):
 
         self.net = nn.Sequential(
             nn.Conv2d(i, o, 3, 1, 1),
-            nn.ReLU(inplace=True)
+            nn.ReLU(inplace=True),
+            nn.Conv2d(o, o, 3, 1, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(o, o, 3, 1, 1)
         )
 
-        self.skip = i == o
+        self.skip = nn.Conv2d(i, o, 1, 1, 0, 1, 1, False) if i != o else nn.Identity()
+        self.fuse = nn.ReLU()
     
     def forward(self, x):
-        if self.skip:
-            return self.net(x) + x
-        return self.net(x)
+        return self.fuse(self.net(x) + self.skip(x))
+
+class Clamp(nn.Module):
+    def forward(self, x):
+        return torch.tanh(x) * 3
 
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
 
-        self.headblk = nn.Sequential(
-            XBlock(4, 4 * 4, 3, 3),
-
-            nn.PixelUnshuffle(2),
-
-            XBlock(16, 16 * 4, 3, 3),
-            YBlock(16, 8),
-
-            nn.PixelUnshuffle(2),
-
-            XBlock(32, 32 * 4, 3, 3),
-
-            nn.PixelUnshuffle(2),
-
-            XBlock(128, 128 * 4, 3, 3),
-            YBlock(128, 64),
-
-            nn.PixelUnshuffle(2),
-
-            XBlock(256, 256 * 4, 3, 3),
-
-            nn.PixelUnshuffle(2),
-
-            XBlock(1024, 1024 * 4, 3, 3),
-        )
-
-        self.mainblk = nn.Sequential(
-            YBlock(3072, 4096),
-
-            nn.PixelShuffle(2),
-
-            YBlock(1024, 2048),
-            YBlock(2048, 2048),
-            
-            nn.PixelShuffle(2),
-
+        self.net = nn.Sequential(
             YBlock(512, 1024),
+            XBlock(1024, 1024 * 4, 3, 1),
             YBlock(1024, 1024),
-            
+            XBlock(1024, 1024 * 4, 3, 1),
+
             nn.PixelShuffle(2),
 
             YBlock(256, 512),
+            XBlock(512, 512 * 4, 3, 1),
             YBlock(512, 512),
+            XBlock(512, 512 * 4, 3, 1),
+            YBlock(512, 512),
+            XBlock(512, 512 * 4, 3, 1),
             
             nn.PixelShuffle(2),
 
             YBlock(128, 256),
+            XBlock(256, 256 * 4, 3, 1),
             YBlock(256, 256),
+            XBlock(256, 256 * 4, 3, 1),
             YBlock(256, 256),
+            XBlock(256, 256 * 4, 3, 1),
+            YBlock(256, 256),
+            XBlock(256, 256 * 4, 3, 1),
 
-            nn.PixelShuffle(2),
-
-            YBlock(64, 64),
-            YBlock(64, 64),
-            YBlock(64, 64),
-
-            nn.Conv2d(64, 8, 3, 1, 1),
-            nn.Sigmoid()
+            nn.Conv2d(256, 16, 1, 1, 0),
         )
 
+    def forward(self, x):
+        return self.net(x)
 
-    def forward(self, x, m, c1, c2):
-        x1 = (x[:, 0:4] + 1) * m[:, 0:4] - 1
-        x2 = (x[:, -4:] + 1) * m[:, -4:] - 1
-        x1 = self.headblk(x1)
-        x2 = self.headblk(x2)
-        x = torch.concat([x1, x2, c1, c2], dim=1)
-        return self.mainblk(x)
+class Discriminator(nn.Module):
+    def __init__(self):
+        super(Discriminator, self).__init__()
 
+        self.net = nn.Sequential(
+            nn.Conv2d(16, 512, 3, 1, 1),
+
+            XBlock(512, 512 * 4, 3, 1),
+            nn.Conv2d(512, 128, 3, 1, 1),
+
+            nn.PixelUnshuffle(2),
+
+            XBlock(512, 512 * 4, 3, 1),
+            nn.Conv2d(512, 128, 3, 1, 1),
+            
+            nn.PixelUnshuffle(2),
+
+            XBlock(512, 512 * 4, 3, 1),
+            nn.Conv2d(512, 128, 3, 1, 1),
+
+            nn.Conv2d(128, 1, 1, 1, 0)
+        )
+
+    def forward(self, x):
+        return self.net(x)
