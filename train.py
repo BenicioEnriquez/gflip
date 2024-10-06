@@ -100,7 +100,7 @@ for epoch in range(epochs):
             # print(ltimgC.min().item(), ltimgC.max().item())
             # print(fake.min().item(), fake.max().item())
 
-        scalerG.scale(gloss + (1 - clipsim) * 3).backward()
+        scalerG.scale(gloss + (1 - clipsim) * 20).backward()
         scalerG.step(optimizerG)
         scalerG.update()
         if scalerG.get_scale() < 64:
@@ -124,7 +124,7 @@ for epoch in range(epochs):
             if scalerD.get_scale() < 64:
                 scalerD.update(16384.0)
         
-        print(gloss.item(), dloss.item(), rerr.item(), rerr.item())
+        # print(gloss.item(), dloss.item(), rerr.item(), rerr.item())
 
         if stats:
             wandb.log({

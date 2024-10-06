@@ -7,15 +7,15 @@ from torchvision.utils import make_grid
 from PIL import Image
 
 from GFLIP import Generator
-from processors import DepthPipe, getCLIP
+from processors import *
 
 torch.backends.cudnn.benchmark = True
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
-loadpt = 0
-mult = 1
+loadpt = 1
+mult = 2
 dtype = torch.float16
 
 gen = Generator().to(device, dtype)
@@ -27,12 +27,9 @@ params = np.sum([p.numel() for p in gen.parameters()]).item()/10**6
 print("Params:", params)
 
 depth = DepthPipe(518)
+vae = getVAE().to(device, dtype)
 clip, preprocess = getCLIP()
 clip.to(device, dtype)
-
-def getmask(b, c, m, p):
-    s = 256 // (2 ** p)
-    return nn.Upsample((256, 256))(torch.repeat_interleave((torch.rand(b, 1, s, s) < m).float(), c, 1).round()).to(device, dtype)
 
 scale = torch.nn.Upsample(scale_factor=mult, mode='bilinear')
 frameT = preprocess(Image.open("./imgs/modern.png").convert('RGB')).unsqueeze(0).to(device, dtype)
@@ -41,53 +38,26 @@ depthT = scale(depth(frameT))
 frameT = scale(frameT)
 embedT = scale(embedT)
 
-tests = []
+ltimgT = vae.encode(frameT, False)[0]
 
-istack = torch.concat([
-    depthT,
-    frameT,
-    depthT,
-    frameT
-], dim=1)
-
-mask = torch.concat([
-    getmask(1, 1, 0.1, 0),
-    getmask(1, 3, 0.1, 0),
-    getmask(1, 1, 0.1, 0),
-    getmask(1, 3, 0.0, 0),
-], dim=1)
-imask = (1 - mask)
+tests = [frameT, torch.repeat_interleave(depthT, 3, 1)]
 
 with torch.inference_mode():
     for x in range(8):
             
         t = time.time()
-        ostack = gen(istack, mask, embedT, embedT) * imask + istack * mask
+        ltimgG = gen(embedT)
         print('%.4fms -> ' % ((time.time()-t) * 1000), end='')
 
-        tests.append(torch.repeat_interleave(ostack[:, :1], 3, 1))
-        tests.append(ostack[:, 1:4])
-        tests.append(torch.repeat_interleave(ostack[:, 4:5], 3, 1))
-        tests.append(ostack[:, -3:])
+        t = time.time()
+        frameG = vae.decode(ltimgG, return_dict=False)[0].clamp(0, 1)
+        print('%.4fms -> ' % ((time.time()-t) * 1000), end='')
 
-        embedG = clip.encode_image(ostack[:, -3:], patch=True)
+        embedG = clip.encode_image(frameG, patch=True)
         clipsim = torch.cosine_similarity(embedG, embedT).mean()
         print('%.4f' % clipsim.item())
 
-        istack = torch.concat([
-            depthT,
-            frameT,
-            # ostack[:, 1:4],
-            depthT,
-            ostack[:, -3:]
-        ], dim=1)
-        
-        mask = torch.concat([
-            getmask(1, 1, 0.15, 0),
-            getmask(1, 3, 0.15, 0),
-            getmask(1, 1, 0.15, 0),
-            getmask(1, 3, 0.05, 0),
-        ], dim=1)
-        imask = (1 - mask)
+tests.append(frameG)
+tests.append(torch.repeat_interleave(depth(frameG), 3, 1))
 
-T.ToPILImage()(make_grid(torch.concat(tests), 4)).save(f"./out.png")
+T.ToPILImage()(make_grid(torch.concat(tests), 2)).save(f"./out.png")
