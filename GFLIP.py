@@ -32,14 +32,21 @@ class YBlock(nn.Module):
         )
 
         self.skip = nn.Conv2d(i, o, 1, 1, 0, 1, 1, False) if i != o else nn.Identity()
-        self.fuse = nn.ReLU()
+        self.fuse = nn.ReLU(inplace=True)
     
     def forward(self, x):
         return self.fuse(self.net(x) + self.skip(x))
 
-class Clamp(nn.Module):
+class ZBlock(nn.Module):
+    def __init__(self, i, o):
+        super(ZBlock, self).__init__()
+
+        self.net = nn.Conv2d(i, o, 3, 1, 1)
+        self.skip = nn.Conv2d(i, o, 1, 1, 0, 1, 1, False) if i != o else nn.Identity()
+        self.fuse = nn.ReLU(inplace=True)
+    
     def forward(self, x):
-        return torch.tanh(x) * 3
+        return self.fuse(self.net(x) + self.skip(x))
 
 class Generator(nn.Module):
     def __init__(self):
@@ -47,31 +54,28 @@ class Generator(nn.Module):
 
         self.net = nn.Sequential(
             YBlock(512, 1024),
-            XBlock(1024, 1024 * 4, 3, 1),
-            YBlock(1024, 1024),
-            XBlock(1024, 1024 * 4, 3, 1),
+            XBlock(1024, 1024 * 3, 5, 3),
+            XBlock(1024, 1024 * 3, 5, 3),
+            XBlock(1024, 1024 * 3, 5, 3),
+            XBlock(1024, 1024 * 3, 5, 3),
 
             nn.PixelShuffle(2),
 
             YBlock(256, 512),
-            XBlock(512, 512 * 4, 3, 1),
-            YBlock(512, 512),
-            XBlock(512, 512 * 4, 3, 1),
-            YBlock(512, 512),
-            XBlock(512, 512 * 4, 3, 1),
+            XBlock(512, 512 * 3, 5, 3),
+            XBlock(512, 512 * 3, 5, 3),
+            XBlock(512, 512 * 3, 5, 3),
+            XBlock(512, 512 * 3, 5, 3),
             
             nn.PixelShuffle(2),
 
             YBlock(128, 256),
-            XBlock(256, 256 * 4, 3, 1),
-            YBlock(256, 256),
-            XBlock(256, 256 * 4, 3, 1),
-            YBlock(256, 256),
-            XBlock(256, 256 * 4, 3, 1),
-            YBlock(256, 256),
-            XBlock(256, 256 * 4, 3, 1),
+            XBlock(256, 256 * 3, 5, 3),
+            XBlock(256, 256 * 3, 5, 3),
+            XBlock(256, 256 * 3, 5, 3),
+            XBlock(256, 256 * 3, 5, 3),
 
-            nn.Conv2d(256, 16, 1, 1, 0),
+            nn.Conv2d(256, 16, 3, 1, 1),
         )
 
     def forward(self, x):
@@ -82,20 +86,23 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
 
         self.net = nn.Sequential(
-            nn.Conv2d(16, 512, 3, 1, 1),
+            ZBlock(16, 512),
 
-            XBlock(512, 512 * 4, 3, 1),
-            nn.Conv2d(512, 128, 3, 1, 1),
+            XBlock(512, 512 * 3, 3, 1),
+            XBlock(512, 512 * 3, 3, 1),
+            ZBlock(512, 128),
 
             nn.PixelUnshuffle(2),
 
-            XBlock(512, 512 * 4, 3, 1),
-            nn.Conv2d(512, 128, 3, 1, 1),
+            XBlock(512, 512 * 3, 3, 1),
+            XBlock(512, 512 * 3, 3, 1),
+            ZBlock(512, 128),
             
             nn.PixelUnshuffle(2),
 
-            XBlock(512, 512 * 4, 3, 1),
-            nn.Conv2d(512, 128, 3, 1, 1),
+            XBlock(512, 512 * 3, 3, 1),
+            XBlock(512, 512 * 3, 3, 1),
+            ZBlock(512, 128),
 
             nn.Conv2d(128, 1, 1, 1, 0)
         )
