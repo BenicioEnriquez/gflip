@@ -14,7 +14,7 @@ torch.backends.cudnn.benchmark = True
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
-loadpt = 1
+loadpt = 3
 mult = 2
 dtype = torch.float16
 
@@ -40,7 +40,15 @@ embedT = scale(embedT)
 
 ltimgT = vae.encode(frameT, False)[0]
 
-tests = [frameT, torch.repeat_interleave(depthT, 3, 1)]
+mask = torch.ones_like(frameT)
+for x in range(mask.size(2)):
+    for y in range(mask.size(3)):
+        if x % 32 == 0 or y % 32 == 0:
+            mask[0, 0, x, y] = 0
+            mask[0, 1, x, y] = 0
+            mask[0, 2, x, y] = 0
+
+tests = [frameT * mask, torch.repeat_interleave(depthT, 3, 1) * mask]
 
 with torch.inference_mode():
     for x in range(8):
@@ -57,7 +65,7 @@ with torch.inference_mode():
         clipsim = torch.cosine_similarity(embedG, embedT).mean()
         print('%.4f' % clipsim.item())
 
-tests.append(frameG)
-tests.append(torch.repeat_interleave(depth(frameG), 3, 1))
+tests.append(frameG * mask)
+tests.append(torch.repeat_interleave(depth(frameG), 3, 1) * mask)
 
 T.ToPILImage()(make_grid(torch.concat(tests), 2)).save(f"./out.png")
