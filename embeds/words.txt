@@ -2323,6 +2323,7 @@ pill
 pillow
 pilot
 pin
+pink
 pioneer
 pipe
 pit
@@ -2503,6 +2504,7 @@ punch
 punish
 pupil
 pure
+purple
 purpose
 pursuit
 push
@@ -3559,5 +3561,6 @@ yawn
 year
 young
 youth
+yellow
 zero
 zone

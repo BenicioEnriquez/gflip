@@ -26,6 +26,7 @@ params = np.sum([p.numel() for p in gen.parameters()]).item()/10**6
 
 print("Params:", params)
 
+i2t = img2txt()
 depth = DepthPipe(518)
 vae = getVAE().to(device, dtype)
 clip, preprocess = getCLIP()
@@ -33,7 +34,7 @@ clip.to(device, dtype)
 
 scale = torch.nn.Upsample(scale_factor=mult, mode='bilinear')
 frameT = preprocess(Image.open("./imgs/modern.png").convert('RGB')).unsqueeze(0).to(device, dtype)
-embedT = clip.encode_image(frameT, patch=True)
+embedT = i2t(clip.encode_image(frameT, patch=True))
 depthT = scale(depth(frameT))
 frameT = scale(frameT)
 embedT = scale(embedT)

@@ -5,6 +5,7 @@ from PIL import Image
 from torchvision import transforms as T
 from transformers import AutoModelForDepthEstimation
 from diffusers import AutoencoderTiny
+from torch.nn import functional as F
 
 def getCLIP():
     clip, _, preprocess = mobileclip.create_model_and_transforms(f'mobileclip_s0', pretrained=f'./models/mobileclip_s0.pt')
@@ -33,6 +34,30 @@ def getVAE():
     vae.decoder.eval()
 
     return vae
+
+class img2txt:
+    def __init__(self):
+        self.device = torch.device("cuda")
+        self.dtype = torch.float16
+        self.txt = torch.load('./embeds/words.emb').to(self.device, self.dtype).unsqueeze(0).unsqueeze(1)
+    
+    def __call__(self, img):
+        dt = img.dtype
+        out = []
+        
+        for i in range(img.size(0)):
+            ish = img[i].unsqueeze(0).view(-1, 512, 64).permute(0, 2, 1)
+            ish = ish.unsqueeze(2).to(self.device, self.dtype)
+
+            cos = F.cosine_similarity(ish, self.txt, dim=-1)
+            wgh = F.softmax(cos / 0.001, dim=-1)
+
+            tot = wgh @ self.txt.squeeze(0).expand(wgh.size(0), -1, -1)
+            tot = tot.permute(0, 2, 1).view(tot.size(0), 512, 8, 8)
+
+            out.append(tot.to(self.device, dt))
+
+        return torch.cat(out)
 
 class DepthPipe:
     def __init__(self, size=None):

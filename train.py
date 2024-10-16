@@ -23,7 +23,7 @@ torch.backends.cudnn.benchmark = True
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
-batchsize = 24
+batchsize = 16
 epochs = 10
 loadpt = -1
 stats = True
@@ -64,11 +64,12 @@ scalerD = torch.cuda.amp.GradScaler()
 check = nn.BCEWithLogitsLoss()
 
 # depth = DepthPipe(518)
+i2t = img2txt()
 clip, preprocess = getCLIP()
 vae = getVAE()
 
 frameT = preprocess(Image.open("./imgs/dogcat.jpg").convert('RGB')).cuda().unsqueeze(0)
-embedT = clip.encode_image(frameT, patch=True)
+embedT = i2t(clip.encode_image(frameT, patch=True))
 ltimgT = vae.encode(frameT, False)[0]
 
 t = time.time()
@@ -90,8 +91,9 @@ for epoch in range(epochs):
 
             ltimgA = vae.encode(frameA, False)[0]
             embedA = clip.encode_image(frameA, patch=True)
+            embedI = i2t(embedA)
 
-            ltimgC = gen(embedA)
+            ltimgC = gen(embedI)
 
             fake = dis(ltimgC)
 
@@ -113,7 +115,7 @@ for epoch in range(epochs):
         optimizerD.zero_grad()
         with torch.cuda.amp.autocast():
 
-            fake = dis(gen(embedA).detach())
+            fake = dis(gen(embedI).detach())
             real = dis(ltimgA)
 
             ferr = check(fake, torch.ones_like(fake))
