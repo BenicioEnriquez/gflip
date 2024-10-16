@@ -14,8 +14,8 @@ torch.backends.cudnn.benchmark = True
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
-loadpt = 1
-mult = 2
+loadpt = 0
+mult = 1
 dtype = torch.float16
 
 gen = Generator().to(device, dtype)

@@ -23,10 +23,10 @@ torch.backends.cudnn.benchmark = True
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
-batchsize = 8
+batchsize = 24
 epochs = 10
 loadpt = -1
-stats = False
+stats = True
 
 print("Loading Data... ", end = "")
 dataset = ImageSet("C:/Datasets/Imagenet/Data")
@@ -73,6 +73,10 @@ ltimgT = vae.encode(frameT, False)[0]
 
 t = time.time()
 
+dloss = torch.zeros(1)
+skipG = 0
+skipD = 0
+
 for epoch in range(epochs):
     for i, (frameA, frameB) in enumerate(dataloader):
 
@@ -97,14 +101,14 @@ for epoch in range(epochs):
             embedC = clip.encode_image(frameC, patch=True)
             clipsim = torch.cosine_similarity(embedA, embedC).mean()
 
-            # print(ltimgC.min().item(), ltimgC.max().item())
-            # print(fake.min().item(), fake.max().item())
-
-        scalerG.scale(gloss + (1 - clipsim) * 20).backward()
-        scalerG.step(optimizerG)
-        scalerG.update()
-        if scalerG.get_scale() < 64:
-            scalerG.update(16384.0)
+        if dloss.item() < gloss.item() * 2:
+            scalerG.scale(gloss + (1 - clipsim) * 5).backward()
+            scalerG.step(optimizerG)
+            scalerG.update()
+            if scalerG.get_scale() < 64:
+                scalerG.update(16384.0)
+        else:
+            skipG += 1
 
         optimizerD.zero_grad()
         with torch.cuda.amp.autocast():
@@ -115,16 +119,16 @@ for epoch in range(epochs):
             ferr = check(fake, torch.ones_like(fake))
             rerr = check(real, torch.zeros_like(real))
 
-            dloss = ferr + rerr
+            dloss = (ferr + rerr) * 0.5
 
-        if gloss.item() < dloss.item():
+        if gloss.item() < dloss.item() * 2:
             scalerD.scale(dloss).backward()
             scalerD.step(optimizerD)
             scalerD.update()
             if scalerD.get_scale() < 64:
                 scalerD.update(16384.0)
-        
-        # print(gloss.item(), dloss.item(), rerr.item(), rerr.item())
+        else:
+            skipD += 1
 
         if stats:
             wandb.log({
@@ -135,7 +139,10 @@ for epoch in range(epochs):
         
         if i % 50 == 0:
 
-            print(f"[Epoch {epoch}/{epochs}] [Batch {i}/{ld}] [loss: {gloss.item():.8f}] [CLIP: {clipsim.item():.4f}] [time: {(time.time() - t):.1f}s]")
+            print(f"[Epoch {epoch}/{epochs}] [Batch {i}/{ld}] [loss: {gloss.item():.8f}] [CLIP: {clipsim.item():.4f}] [time: {(time.time() - t):.1f}s] [skips: {skipG}/{skipD}]")
+
+            skipG = 0
+            skipD = 0
             
             with torch.no_grad():
                 test = vae.decode(gen(embedT), return_dict=False)[0].clamp(0, 1)
