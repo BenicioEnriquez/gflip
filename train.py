@@ -61,7 +61,6 @@ optimizerG = optim.NAdam(gen.parameters(), lr=0.0001, betas=(0.0, 0.9))
 optimizerD = optim.NAdam(dis.parameters(), lr=0.0003, betas=(0.0, 0.9))
 scalerG = torch.cuda.amp.GradScaler()
 scalerD = torch.cuda.amp.GradScaler()
-check = nn.BCEWithLogitsLoss()
 
 # depth = DepthPipe(518)
 i2t = img2txt()
@@ -97,13 +96,14 @@ for epoch in range(epochs):
 
             fake = dis(ltimgC)
 
-            gloss = check(fake, torch.zeros_like(fake))
+            gloss = 0.5 * torch.mean((fake - 1) ** 2)
 
             frameC = vae.decode(ltimgC, return_dict=False)[0].clamp(0, 1)
             embedC = clip.encode_image(frameC, patch=True)
             clipsim = torch.cosine_similarity(embedA, embedC).mean()
 
-        if dloss.item() < gloss.item() * 2:
+        # if dloss.item() < gloss.item() * 2:
+        if True:
             scalerG.scale(gloss + (1 - clipsim) * 5).backward()
             scalerG.step(optimizerG)
             scalerG.update()
@@ -118,12 +118,10 @@ for epoch in range(epochs):
             fake = dis(gen(embedI).detach())
             real = dis(ltimgA)
 
-            ferr = check(fake, torch.ones_like(fake))
-            rerr = check(real, torch.zeros_like(real))
+            dloss = 0.5 * (torch.mean((real - 1) ** 2) + torch.mean(fake ** 2))
 
-            dloss = (ferr + rerr) * 0.5
-
-        if gloss.item() < dloss.item() * 2:
+        # if gloss.item() < dloss.item() * 2:
+        if True:
             scalerD.scale(dloss).backward()
             scalerD.step(optimizerD)
             scalerD.update()

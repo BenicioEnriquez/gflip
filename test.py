@@ -15,7 +15,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
 loadpt = 0
-mult = 1
+mult = 4
 dtype = torch.float16
 
 gen = Generator().to(device, dtype)
@@ -33,7 +33,7 @@ clip, preprocess = getCLIP()
 clip.to(device, dtype)
 
 scale = torch.nn.Upsample(scale_factor=mult, mode='bilinear')
-frameT = preprocess(Image.open("./imgs/modern.png").convert('RGB')).unsqueeze(0).to(device, dtype)
+frameT = preprocess(Image.open("./imgs/dogcat.jpg").convert('RGB')).unsqueeze(0).to(device, dtype)
 embedT = i2t(clip.encode_image(frameT, patch=True))
 depthT = scale(depth(frameT))
 frameT = scale(frameT)
