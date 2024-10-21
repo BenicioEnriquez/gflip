@@ -55,7 +55,7 @@ with torch.inference_mode():
     for x in range(8):
             
         t = time.time()
-        ltimgG = gen(embedT)
+        ltimgG = gen(ltimgT, depthT, embedT)
         print('%.4fms -> ' % ((time.time()-t) * 1000), end='')
 
         t = time.time()

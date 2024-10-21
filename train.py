@@ -57,18 +57,26 @@ if stats:
 print("Gen Params:", paramsG)
 print("Dis Params:", paramsD)
 
-optimizerG = optim.NAdam(gen.parameters(), lr=0.0001, betas=(0.0, 0.9))
-optimizerD = optim.NAdam(dis.parameters(), lr=0.0003, betas=(0.0, 0.9))
+optimizerG = optim.NAdam(gen.parameters(), lr=0.0004, betas=(0.0, 0.9))
+optimizerD = optim.NAdam(dis.parameters(), lr=0.0001, betas=(0.0, 0.9))
 scalerG = torch.cuda.amp.GradScaler()
 scalerD = torch.cuda.amp.GradScaler()
 
-# depth = DepthPipe(518)
+def err(x, t):
+    return (x - t).square().mean()
+
+def noiselt(x, p):
+    return x * (1 - p) + torch.randn_like(x) * p
+
+depth = DepthPipe(518)
+halve = nn.Upsample(scale_factor=0.5)
 i2t = img2txt()
 clip, preprocess = getCLIP()
 vae = getVAE()
 
 frameT = preprocess(Image.open("./imgs/dogcat.jpg").convert('RGB')).cuda().unsqueeze(0)
 embedT = i2t(clip.encode_image(frameT, patch=True))
+depthT = halve(depth(frameT))
 ltimgT = vae.encode(frameT, False)[0]
 
 t = time.time()
@@ -85,26 +93,31 @@ for epoch in range(epochs):
         frameA = frameA.to(device)
         frameB = frameB.to(device)
 
+        depthA = halve(depth(frameA))
+
         optimizerG.zero_grad()
         with torch.cuda.amp.autocast():
 
             ltimgA = vae.encode(frameA, False)[0]
+            ltimgB = vae.encode(frameB, False)[0]
             embedA = clip.encode_image(frameA, patch=True)
-            embedI = i2t(embedA)
 
-            ltimgC = gen(embedI)
+            embedI = i2t(embedA)
+            ltimgI = noiselt(ltimgB, randf(0, 1))
+
+            ltimgC = gen(ltimgI, depthA, embedI)
 
             fake = dis(ltimgC)
 
-            gloss = 0.5 * torch.mean((fake - 1) ** 2)
+            gloss = err(fake, 1)
 
             frameC = vae.decode(ltimgC, return_dict=False)[0].clamp(0, 1)
             embedC = clip.encode_image(frameC, patch=True)
             clipsim = torch.cosine_similarity(embedA, embedC).mean()
 
-        # if dloss.item() < gloss.item() * 2:
-        if True:
-            scalerG.scale(gloss + (1 - clipsim) * 5).backward()
+        if dloss.item() < gloss.item() * 2:
+            scalerG.scale(gloss + (1 - clipsim)).backward()
+            # scalerG.scale(gloss).backward()
             scalerG.step(optimizerG)
             scalerG.update()
             if scalerG.get_scale() < 64:
@@ -115,13 +128,12 @@ for epoch in range(epochs):
         optimizerD.zero_grad()
         with torch.cuda.amp.autocast():
 
-            fake = dis(gen(embedI).detach())
+            fake = dis(gen(ltimgI, depthA, embedI).detach())
             real = dis(ltimgA)
 
-            dloss = 0.5 * (torch.mean((real - 1) ** 2) + torch.mean(fake ** 2))
+            dloss = (err(real, 1) + err(fake, 0)) * 0.5
 
-        # if gloss.item() < dloss.item() * 2:
-        if True:
+        if gloss.item() < dloss.item() * 2:
             scalerD.scale(dloss).backward()
             scalerD.step(optimizerD)
             scalerD.update()
@@ -145,7 +157,7 @@ for epoch in range(epochs):
             skipD = 0
             
             with torch.no_grad():
-                test = vae.decode(gen(embedT), return_dict=False)[0].clamp(0, 1)
+                test = vae.decode(gen(noiselt(ltimgT, 1), depthT, embedT), return_dict=False)[0].clamp(0, 1)
                 outimgs = T.ToPILImage()(test[0])
                 outimgs.save(f"./results/{epoch}-{i}.png")
 

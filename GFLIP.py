@@ -52,34 +52,61 @@ class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
 
-        self.net = nn.Sequential(
-            YBlock(512, 1024),
-            XBlock(1024, 1024 * 3, 5, 3),
-            XBlock(1024, 1024 * 3, 5, 3),
-            XBlock(1024, 1024 * 3, 5, 3),
-            XBlock(1024, 1024 * 3, 5, 3),
+        self.dnet = nn.PixelUnshuffle(16)
 
+        self.con1 = nn.Sequential(
             nn.PixelShuffle(2),
+            YBlock(192, 256),
+        )
 
-            YBlock(256, 512),
-            XBlock(512, 512 * 3, 5, 3),
-            XBlock(512, 512 * 3, 5, 3),
-            XBlock(512, 512 * 3, 5, 3),
-            XBlock(512, 512 * 3, 5, 3),
-            
+        self.con2 = nn.Sequential(
+            nn.PixelShuffle(4),
+            YBlock(48, 128),
+        )
+
+        self.stg1 = nn.Sequential(
+            XBlock(16, 16 * 3, 5, 3),
+            nn.PixelUnshuffle(2),
+            XBlock(64, 64 * 3, 5, 3),
+            nn.PixelUnshuffle(2),
+            XBlock(256, 256 * 3, 5, 3),
+        )
+
+        self.stg2 = nn.Sequential(
+            XBlock(1024, 1024 * 3, 5, 3),
+            XBlock(1024, 1024 * 3, 5, 3),
+            XBlock(1024, 1024 * 3, 5, 3),
+            XBlock(1024, 1024 * 3, 5, 3),
             nn.PixelShuffle(2),
+        )
 
-            YBlock(128, 256),
-            XBlock(256, 256 * 3, 5, 3),
-            XBlock(256, 256 * 3, 5, 3),
-            XBlock(256, 256 * 3, 5, 3),
-            XBlock(256, 256 * 3, 5, 3),
+        self.stg3 = nn.Sequential(
+            XBlock(512, 512 * 3, 5, 3),
+            XBlock(512, 512 * 3, 5, 3),
+            XBlock(512, 512 * 3, 5, 3),
+            XBlock(512, 512 * 3, 5, 3),
+            nn.PixelShuffle(2),
+        )
 
+        self.stg4 = nn.Sequential(
+            XBlock(256, 256 * 3, 5, 3),
+            XBlock(256, 256 * 3, 5, 3),
+            XBlock(256, 256 * 3, 5, 3),
+            XBlock(256, 256 * 3, 5, 3),
             nn.Conv2d(256, 16, 3, 1, 1),
         )
 
-    def forward(self, x):
-        return self.net(x)
+    def forward(self, x, d, c):
+        c = torch.cat([self.dnet(d), c], 1)
+        x = self.stg1(x)
+        x = torch.cat([c, x], 1)
+        x = self.stg2(x)
+        x = torch.cat([self.con1(c), x], 1)
+        x = self.stg3(x)
+        x = torch.cat([self.con2(c), x], 1)
+        x = self.stg4(x)
+
+        return x
 
 class Discriminator(nn.Module):
     def __init__(self):
