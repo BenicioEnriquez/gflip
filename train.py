@@ -25,7 +25,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # Settings
 batchsize = 16
 epochs = 10
-loadpt = 11
+loadpt = -1
 stats = False
 
 print("Loading Data... ", end = "")
@@ -58,11 +58,11 @@ print("Gen Params:", paramsG)
 print("Dis Params:", paramsD)
 
 optimizerG = optim.NAdam(gen.parameters(), lr=0.0001, betas=(0.1, 0.9))
-optimizerD = optim.NAdam(dis.parameters(), lr=0.0001, betas=(0.3, 0.9))
+optimizerD = optim.NAdam(dis.parameters(), lr=0.0001, betas=(0.5, 0.9))
 scalerG = torch.cuda.amp.GradScaler()
 scalerD = torch.cuda.amp.GradScaler()
 
-def err(x, t):
+def mse(x, t):
     return (x - t).square().mean()
 
 def noiselt(x, p):
@@ -89,7 +89,7 @@ for epoch in range(epochs):
         frameA = frameA.to(device)
         frameB = frameB.to(device)
 
-        depthA = halve(depth(frameA))
+        depthA = depth(frameA)
 
         optimizerG.zero_grad()
         with torch.cuda.amp.autocast():
@@ -103,18 +103,20 @@ for epoch in range(epochs):
 
             ltimgI = torch.stack([noiselt(ltimgB[x], x/(bs-1)) for x in range(bs)])
 
-            ltimgC = gen(ltimgI, depthA, embedI)
+            ltimgC = gen(ltimgI, halve(depthA), embedI)
 
             frameC = vae.decode(ltimgC, return_dict=False)[0].clamp(0, 1)
             embedC = clip.encode_image(frameC, patch=True)
             clipsim = torch.cosine_similarity(embedA, embedC).mean()
 
-            fake = dis(ltimgC, embedC, ltimgI, embedB, depthA, embedI)
+            fake = dis(ltimgC, embedC, ltimgI, embedB)
+            real = dis(ltimgA, embedA, ltimgI, embedB)
 
-            gloss = err(fake, 1)
+            # gloss = (torch.mean(torch.nn.ReLU()(1.0 + (real - torch.mean(fake)))) + torch.mean(torch.nn.ReLU()(1.0 - (fake - torch.mean(real)))))/2
+            gloss = (torch.mean((real - torch.mean(fake) + 1) ** 2) + torch.mean((fake - torch.mean(real) - 1) ** 2))/2
+            tloss = mse(ltimgA, ltimgC) * 0.5 + mse(depth(frameC), depthA) + (1 - clipsim) * 0.1
 
-        scalerG.scale(gloss + (1 - clipsim)).backward()
-        # scalerG.scale(gloss).backward()
+        scalerG.scale(gloss + tloss * 0.5).backward()
         scalerG.step(optimizerG)
         scalerG.update()
         if scalerG.get_scale() < 64:
@@ -124,10 +126,11 @@ for epoch in range(epochs):
         optimizerD.zero_grad()
         with torch.cuda.amp.autocast():
 
-            fake = dis(ltimgC.detach(), embedC.detach(), ltimgI, embedB, depthA, embedI)
-            real = dis(ltimgA, embedA, ltimgI, embedB, depthA, embedI)
+            fake = dis(ltimgC.detach(), embedC.detach(), ltimgI, embedB)
+            real = dis(ltimgA, embedA, ltimgI, embedB)
 
-        dloss = err(real, 1) + err(fake, 0)
+            # dloss = (torch.mean(torch.nn.ReLU()(1.0 - (real - torch.mean(fake)))) + torch.mean(torch.nn.ReLU()(1.0 + (fake - torch.mean(real)))))/2
+            dloss = (torch.mean((real - torch.mean(fake) - 1) ** 2) + torch.mean((fake - torch.mean(real) + 1) ** 2))/2
 
         scalerD.scale(dloss).backward()
         scalerD.step(optimizerD)

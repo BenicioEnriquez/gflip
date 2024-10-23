@@ -123,7 +123,7 @@ class Discriminator(nn.Module):
         )
 
         self.main = nn.Sequential(
-            ZBlock(2304, 1024),
+            ZBlock(1536, 1024),
 
             XBlock(1024, 1024 * 3, 5, 3),
             ZBlock(1024, 512),
@@ -137,13 +137,11 @@ class Discriminator(nn.Module):
             nn.Conv2d(128, 1, 1, 1, 0)
         )
 
-    def forward(self, cframe, cclip, lframe, lclip, tdepth, tclip):
+    def forward(self, cframe, cclip, lframe, lclip):
         x = torch.cat([
             self.fnet(cframe),
             self.fnet(lframe),
-            self.dnet(tdepth),
             cclip,
-            lclip,
-            tclip
+            lclip
         ], 1)
         return self.main(x)

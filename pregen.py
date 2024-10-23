@@ -56,7 +56,7 @@ print("Gen Params:", paramsG)
 optimizerG = optim.NAdam(gen.parameters(), lr=0.0003, betas=(0.1, 0.9))
 scalerG = torch.cuda.amp.GradScaler()
 
-def err(x, t):
+def mse(x, t):
     return (x - t).square().mean()
 
 def noiselt(x, p):
@@ -102,7 +102,7 @@ for epoch in range(epochs):
             embedC = clip.encode_image(frameC, patch=True)
             clipsim = torch.cosine_similarity(embedA, embedC).mean()
 
-            gloss = err(ltimgA, ltimgC) + err(depth(frameC), depthA) + (1 - clipsim) * 0.1
+            gloss = mse(ltimgA, ltimgC) + mse(depth(frameC), depthA) + (1 - clipsim) * 0.1
 
         scalerG.scale(gloss).backward()
         scalerG.step(optimizerG)
