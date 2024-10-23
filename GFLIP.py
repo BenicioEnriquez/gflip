@@ -74,25 +74,25 @@ class Generator(nn.Module):
 
         self.stg2 = nn.Sequential(
             XBlock(1024, 1024 * 3, 5, 3),
+            YBlock(1024, 1024),
             XBlock(1024, 1024 * 3, 5, 3),
-            XBlock(1024, 1024 * 3, 5, 3),
-            XBlock(1024, 1024 * 3, 5, 3),
+            YBlock(1024, 1024),
             nn.PixelShuffle(2),
         )
 
         self.stg3 = nn.Sequential(
             XBlock(512, 512 * 3, 5, 3),
+            YBlock(512, 512),
             XBlock(512, 512 * 3, 5, 3),
-            XBlock(512, 512 * 3, 5, 3),
-            XBlock(512, 512 * 3, 5, 3),
+            YBlock(512, 512),
             nn.PixelShuffle(2),
         )
 
         self.stg4 = nn.Sequential(
             XBlock(256, 256 * 3, 5, 3),
+            YBlock(256, 256),
             XBlock(256, 256 * 3, 5, 3),
-            XBlock(256, 256 * 3, 5, 3),
-            XBlock(256, 256 * 3, 5, 3),
+            YBlock(256, 256),
             nn.Conv2d(256, 16, 3, 1, 1),
         )
 
@@ -112,27 +112,38 @@ class Discriminator(nn.Module):
     def __init__(self):
         super(Discriminator, self).__init__()
 
-        self.net = nn.Sequential(
-            ZBlock(16, 512),
+        self.dnet = nn.PixelUnshuffle(16)
 
-            XBlock(512, 512 * 3, 3, 1),
-            XBlock(512, 512 * 3, 3, 1),
-            ZBlock(512, 128),
-
+        self.fnet = nn.Sequential(
+            XBlock(16, 16 * 3, 3, 1),
             nn.PixelUnshuffle(2),
+            XBlock(64, 64 * 3, 3, 1),
+            nn.PixelUnshuffle(2),
+            XBlock(256, 256 * 3, 3, 1),
+        )
 
-            XBlock(512, 512 * 3, 3, 1),
-            XBlock(512, 512 * 3, 3, 1),
-            ZBlock(512, 128),
+        self.main = nn.Sequential(
+            ZBlock(2304, 1024),
+
+            XBlock(1024, 1024 * 3, 5, 3),
+            ZBlock(1024, 512),
             
-            nn.PixelUnshuffle(2),
+            XBlock(512, 512 * 3, 5, 3),
+            ZBlock(512, 256),
 
-            XBlock(512, 512 * 3, 3, 1),
-            XBlock(512, 512 * 3, 3, 1),
-            ZBlock(512, 128),
+            XBlock(256, 256 * 3, 5, 3),
+            ZBlock(256, 128),
 
             nn.Conv2d(128, 1, 1, 1, 0)
         )
 
-    def forward(self, x):
-        return self.net(x)
+    def forward(self, cframe, cclip, lframe, lclip, tdepth, tclip):
+        x = torch.cat([
+            self.fnet(cframe),
+            self.fnet(lframe),
+            self.dnet(tdepth),
+            cclip,
+            lclip,
+            tclip
+        ], 1)
+        return self.main(x)

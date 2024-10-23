@@ -13,7 +13,7 @@ from torchvision.transforms import v2 as T
 from torchvision.utils import make_grid
 from PIL import Image
 
-from GFLIP import Generator, Discriminator
+from GFLIP import Generator
 from datasets import ImageSet
 from processors import *
 
@@ -25,7 +25,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # Settings
 batchsize = 16
 epochs = 10
-loadpt = 11
+loadpt = -1
 stats = False
 
 print("Loading Data... ", end = "")
@@ -35,32 +35,26 @@ ld = len(dataloader)
 print(ld * batchsize, "images loaded")
 
 gen = Generator().to(device)
-dis = Discriminator().to(device)
 
 if loadpt > -1:
     gen.load_state_dict(torch.load(f'./models/gen_{loadpt}.pth').state_dict())
-    dis.load_state_dict(torch.load(f'./models/dis_{loadpt}.pth').state_dict())
 
 paramsG = np.sum([p.numel() for p in gen.parameters()]).item()/10**6
-paramsD = np.sum([p.numel() for p in dis.parameters()]).item()/10**6
 
 if stats:
     wandb.init(
         project = 'GFLIP-A',
         config = {
             'gen_params': paramsG,
-            'dis_params': paramsD,
+            'dis_params': 0,
             'batchsize': batchsize,
         }
     )
 
 print("Gen Params:", paramsG)
-print("Dis Params:", paramsD)
 
-optimizerG = optim.NAdam(gen.parameters(), lr=0.0001, betas=(0.1, 0.9))
-optimizerD = optim.NAdam(dis.parameters(), lr=0.0001, betas=(0.3, 0.9))
+optimizerG = optim.NAdam(gen.parameters(), lr=0.0003, betas=(0.1, 0.9))
 scalerG = torch.cuda.amp.GradScaler()
-scalerD = torch.cuda.amp.GradScaler()
 
 def err(x, t):
     return (x - t).square().mean()
@@ -89,7 +83,7 @@ for epoch in range(epochs):
         frameA = frameA.to(device)
         frameB = frameB.to(device)
 
-        depthA = halve(depth(frameA))
+        depthA = depth(frameA)
 
         optimizerG.zero_grad()
         with torch.cuda.amp.autocast():
@@ -97,55 +91,36 @@ for epoch in range(epochs):
             ltimgA = vae.encode(frameA, False)[0]
             ltimgB = vae.encode(frameB, False)[0]
             embedA = clip.encode_image(frameA, patch=True)
-            embedB = clip.encode_image(frameB, patch=True)
 
             embedI = i2t(embedA)
 
             ltimgI = torch.stack([noiselt(ltimgB[x], x/(bs-1)) for x in range(bs)])
 
-            ltimgC = gen(ltimgI, depthA, embedI)
+            ltimgC = gen(ltimgI, halve(depthA), embedI)
 
             frameC = vae.decode(ltimgC, return_dict=False)[0].clamp(0, 1)
             embedC = clip.encode_image(frameC, patch=True)
             clipsim = torch.cosine_similarity(embedA, embedC).mean()
 
-            fake = dis(ltimgC, embedC, ltimgI, embedB, depthA, embedI)
+            gloss = err(ltimgA, ltimgC) + err(depth(frameC), depthA) + (1 - clipsim) * 0.1
 
-            gloss = err(fake, 1)
-
-        scalerG.scale(gloss + (1 - clipsim)).backward()
-        # scalerG.scale(gloss).backward()
+        scalerG.scale(gloss).backward()
         scalerG.step(optimizerG)
         scalerG.update()
         if scalerG.get_scale() < 64:
             scalerG.update(16384.0)
         nn.utils.clip_grad_norm_(gen.parameters(), 0.1)
 
-        optimizerD.zero_grad()
-        with torch.cuda.amp.autocast():
-
-            fake = dis(ltimgC.detach(), embedC.detach(), ltimgI, embedB, depthA, embedI)
-            real = dis(ltimgA, embedA, ltimgI, embedB, depthA, embedI)
-
-        dloss = err(real, 1) + err(fake, 0)
-
-        scalerD.scale(dloss).backward()
-        scalerD.step(optimizerD)
-        scalerD.update()
-        if scalerD.get_scale() < 64:
-            scalerD.update(16384.0)
-        nn.utils.clip_grad_norm_(dis.parameters(), 0.1)
-
         if stats:
             wandb.log({
                 'gloss': gloss,
-                'dloss': dloss,
+                'dloss': 0,
                 'clip_siml': clipsim
             })
         
         if i % 50 == 0:
 
-            print(f"[Epoch {epoch}/{epochs}] [Batch {i}/{ld}] [loss: {gloss.item():.4f}/{dloss.item():.4f}] [CLIP: {clipsim.item():.4f}] [time: {(time.time() - t):.1f}s]")
+            print(f"[Epoch {epoch}/{epochs}] [Batch {i}/{ld}] [loss: {gloss.item():.4f}] [CLIP: {clipsim.item():.4f}] [time: {(time.time() - t):.1f}s]")
             
             with torch.no_grad():
                 tests = []
@@ -163,7 +138,6 @@ for epoch in range(epochs):
                     })
 
                 torch.save(gen, f"./models/gen_{epoch}.pth")
-                torch.save(dis, f"./models/dis_{epoch}.pth")
             
             t = time.time()
 

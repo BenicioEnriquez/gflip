@@ -69,4 +69,4 @@ with torch.inference_mode():
 tests.append(frameG * mask)
 tests.append(torch.repeat_interleave(depth(frameG), 3, 1) * mask)
 
-T.ToPILImage()(make_grid(torch.concat(tests), 2)).save(f"./out.png")
+T.ToPILImage()(make_grid(torch.cat(tests), 2)).save(f"./out.png")
