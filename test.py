@@ -15,7 +15,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Settings
 loadpt = 0
-mult = 4
+mult = 2
 dtype = torch.float16
 
 gen = Generator().to(device, dtype)
@@ -28,20 +28,29 @@ print("Params:", params)
 
 i2t = img2txt()
 depth = DepthPipe(518)
+halve = nn.Upsample(scale_factor=0.5)
 vae = getVAE().to(device, dtype)
 clip, preprocess = getCLIP()
 clip.to(device, dtype)
 
-scale = torch.nn.Upsample(scale_factor=mult, mode='bilinear')
-frameT = preprocess(Image.open("./imgs/dogcat.jpg").convert('RGB')).unsqueeze(0).to(device, dtype)
-embedT = i2t(clip.encode_image(frameT, patch=True))
-depthT = scale(depth(frameT))
-frameT = scale(frameT)
+scale = nn.Upsample(scale_factor=mult, mode='bilinear')
+frameT = preprocess(Image.open("./imgs/modern.png").convert('RGB')).unsqueeze(0).to(device, dtype)
+frameA = nn.Upsample(256)(T.RandomResizedCrop(180)(frameT))
+frameB = nn.Upsample(256)(T.RandomResizedCrop(180)(frameT))
+embedI = clip.encode_image(frameB, patch=True)
+embedT = i2t(embedI)
+depthT = scale(halve(depth(frameB)))
+frameA = scale(frameA)
+frameB = scale(frameB)
+embedI = scale(embedI)
 embedT = scale(embedT)
 
-ltimgT = vae.encode(frameT, False)[0]
+ltimgA = vae.encode(frameA, False)[0]
 
-mask = torch.ones_like(frameT)
+def noiselt(x, p):
+    return x * (1 - p) + torch.randn_like(x) * p
+
+mask = torch.ones_like(frameA)
 for x in range(mask.size(2)):
     for y in range(mask.size(3)):
         if x % 32 == 0 or y % 32 == 0:
@@ -49,13 +58,15 @@ for x in range(mask.size(2)):
             mask[0, 1, x, y] = 0
             mask[0, 2, x, y] = 0
 
-tests = [frameT * mask, torch.repeat_interleave(depthT, 3, 1) * mask]
+tests = [frameA * mask]
+
+ltimgG = ltimgA
 
 with torch.inference_mode():
     for x in range(8):
             
         t = time.time()
-        ltimgG = gen(ltimgT, depthT, embedT)
+        ltimgG = gen(noiselt(ltimgA, x/7), depthT, embedT)
         print('%.4fms -> ' % ((time.time()-t) * 1000), end='')
 
         t = time.time()
@@ -63,10 +74,9 @@ with torch.inference_mode():
         print('%.4fms -> ' % ((time.time()-t) * 1000), end='')
 
         embedG = clip.encode_image(frameG, patch=True)
-        clipsim = torch.cosine_similarity(embedG, embedT).mean()
+        clipsim = torch.cosine_similarity(embedG, embedI).mean()
         print('%.4f' % clipsim.item())
 
-tests.append(frameG * mask)
-tests.append(torch.repeat_interleave(depth(frameG), 3, 1) * mask)
+        tests.append(frameG * mask)
 
-T.ToPILImage()(make_grid(torch.cat(tests), 2)).save(f"./out.png")
+T.ToPILImage()(make_grid(torch.cat(tests), 3)).save(f"./out.png")
